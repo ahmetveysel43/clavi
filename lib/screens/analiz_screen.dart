@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'ilerleme_raporu_screen.dart';
 import 'test_karsilastirma_screen.dart';
 import '../utils/olcum_paylasim_helper.dart';
+import 'performance_analysis_screen.dart';
 
 
 
@@ -510,7 +511,6 @@ Widget _buildSporcuSecimBolumu() {
   }
 
   // analiz_screen.dart dosyasındaki _buildDetayliAnalizMenusu metoduna güncellemeleri ekleyelim
-
 Widget _buildDetayliAnalizMenusu() {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -650,10 +650,48 @@ Widget _buildDetayliAnalizMenusu() {
           ],
         ),
       ),
+      const SizedBox(height: 16),
+      // Üçüncü sırada performans analizi
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            // Performans Analizi
+            Expanded(
+              child: _buildAnalysisCard(
+                title: 'Performans Analizi',
+                description: 'İstatistiksel performans değerlendirmesi',
+                icon: Icons.analytics,
+                color: const Color(0xFF42A5F5),
+                isDisabled: _toplamTest < 3,
+                onTap: () {
+                  if (_toplamTest >= 3 && _secilenSporcu != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PerformanceAnalysisScreen(
+                          sporcuId: _secilenSporcu!.id!,
+                          olcumTuru: _selectedTestType != 'Tümü' ? _selectedTestType : null,
+                        ),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('İstatistiksel analiz için en az 3 test gerekli')),
+                    );
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 16),
+            // Boş alan
+            const Expanded(child: SizedBox()),
+          ],
+        ),
+      ),
     ],
   );
 }
-
 // Test türü seçim diyaloğu için yeni bir metod ekleyelim
 void _showTestTuruSecimDialogu() {
   showDialog(
@@ -1151,15 +1189,15 @@ void _showShareModal(Olcum olcum) async {
                     const SizedBox(height: 24),
                     
                     // Repaint Boundary ile paylaşım görünümünü sar
-                    if (sporcu != null) // Sporcu null kontrolü eklendi
-                      RepaintBoundary(
-                        key: repaintKey,
-                        child: OlcumPaylasimHelper.buildPaylasimWidget(
-                          sporcu: sporcu,
-                          olcum: olcum,
-                          appName: 'Athlete Speed & Power',
-                        ),
+                    // Sporcu null kontrolü eklendi
+                    RepaintBoundary(
+                      key: repaintKey,
+                      child: OlcumPaylasimHelper.buildPaylasimWidget(
+                        sporcu: sporcu,
+                        olcum: olcum,
+                        appName: 'Athlete Speed & Power',
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -1179,13 +1217,6 @@ void _showShareModal(Olcum olcum) async {
                   ),
                 ),
                 onPressed: () async {
-                  if (sporcu == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Sporcu bilgisi bulunamadı')),
-                    );
-                    return;
-                  }
-                  
                   try {
                     // Paylaşım işlemini gerçekleştir
                     await OlcumPaylasimHelper.shareOlcum(

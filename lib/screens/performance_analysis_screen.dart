@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/sporcu_model.dart';
-import '../models/olcum_model.dart';
 import '../services/database_service.dart';
 import '../services/performance_analysis_service.dart';
 import '../utils/performance_visualization_helper.dart';
@@ -35,7 +34,7 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
   // Filtre seçenekleri
   final List<String> _olcumTurleri = ['Sprint', 'CMJ', 'SJ', 'DJ', 'RJ'];
   Map<String, List<String>> _degerTurleri = {
-    'Sprint': ['Kapi1', 'Kapi2', 'Kapi3', 'Kapi4', 'Kapi5', 'Kapi6', 'Kapi7'],
+    'Sprint': ['Kapi7', 'Kapi6', 'Kapi5', 'Kapi4', 'Kapi3', 'Kapi2', 'Kapi1'],
     'CMJ': ['Yukseklik', 'UcusSuresi', 'Guc'],
     'SJ': ['Yukseklik', 'UcusSuresi', 'Guc'],
     'DJ': ['Yukseklik', 'UcusSuresi', 'Guc', 'TemasSuresi', 'RSI'],
@@ -62,7 +61,14 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
       
       // Başlangıçta bir sporcu ve ölçüm türü seçili mi kontrol et
       if (widget.sporcuId != null) {
-        _secilenSporcu = await _databaseService.getSporcu(widget.sporcuId!);
+        try {
+          _secilenSporcu = await _databaseService.getSporcu(widget.sporcuId!);
+        } catch (e) {
+          debugPrint('Sporcu yüklenirken hata: $e');
+          if (_sporcular.isNotEmpty) {
+            _secilenSporcu = _sporcular.first;
+          }
+        }
       } else if (_sporcular.isNotEmpty) {
         _secilenSporcu = _sporcular.first;
       }
@@ -85,7 +91,9 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
     } catch (e) {
       _showSnackBar('Veriler yüklenirken hata: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
   
@@ -108,13 +116,21 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
     } catch (e) {
       _showSnackBar('Analiz yüklenirken hata: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
   
   void _showSnackBar(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
   
@@ -151,8 +167,13 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
   void _onSporcuChanged(int? sporcuId) {
     if (sporcuId == null) return;
     
+    final selectedSporcu = _sporcular.firstWhere(
+      (s) => s.id == sporcuId,
+      orElse: () => _sporcular.first,
+    );
+    
     setState(() {
-      _secilenSporcu = _sporcular.firstWhere((s) => s.id == sporcuId);
+      _secilenSporcu = selectedSporcu;
       _analysis = null; // Analizleri temizle
     });
     
@@ -190,9 +211,14 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Performans Analizi'),
+        title: const Text(
+          'Performans Analizi',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: const Color(0xFF0288D1),
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -223,98 +249,106 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
             ),
     );
   }
-  
   Widget _buildSelectionSection() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Analiz Parametreleri',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0288D1),
+  return Card(
+    elevation: 4,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    child: Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Analiz Parametreleri',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0288D1),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Sporcu seçimi
+          DropdownButtonFormField<int>(
+            decoration: InputDecoration(
+              labelText: 'Sporcu',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.person),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
-            const SizedBox(height: 16),
-            
-            // Sporcu seçimi
-            DropdownButtonFormField<int>(
-              decoration: InputDecoration(
-                labelText: 'Sporcu',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            value: _secilenSporcu?.id,
+            onChanged: _onSporcuChanged,
+            isExpanded: true, // Bu satırı ekledim
+            items: _sporcular.map((s) {
+              return DropdownMenuItem<int>(
+                value: s.id,
+                child: Text(
+                  '${s.ad} ${s.soyad} (${s.yas} yaş)',
+                  overflow: TextOverflow.ellipsis, // Bu satırı ekledim
                 ),
-                prefixIcon: const Icon(Icons.person),
+              );
+            }).toList(),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Ölçüm ve değer türü seçimi - Tek sütun haline getirdim
+          Column(
+            children: [
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  labelText: 'Ölçüm Türü',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  prefixIcon: const Icon(Icons.category),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                value: _secilenOlcumTuru.isEmpty ? null : _secilenOlcumTuru,
+                onChanged: _onOlcumTuruChanged,
+                isExpanded: true, // Bu satırı ekledim
+                items: _olcumTurleri.map((ot) {
+                  return DropdownMenuItem<String>(
+                    value: ot,
+                    child: Text(
+                      ot,
+                      overflow: TextOverflow.ellipsis, // Bu satırı ekledim
+                    ),
+                  );
+                }).toList(),
               ),
-              value: _secilenSporcu?.id,
-              onChanged: _onSporcuChanged,
-              items: _sporcular.map((s) {
-                return DropdownMenuItem<int>(
-                  value: s.id,
-                  child: Text('${s.ad} ${s.soyad} (${s.yas} yaş)'),
-                );
-              }).toList(),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Ölçüm ve değer türü seçimi
-            Row(
-              children: [
-                Expanded(
-                  flex: 1,
-                  child: DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      labelText: 'Ölçüm Türü',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.category),
-                    ),
-                    value: _secilenOlcumTuru,
-                    onChanged: _onOlcumTuruChanged,
-                    items: _olcumTurleri.map((ot) {
-                      return DropdownMenuItem<String>(
-                        value: ot,
-                        child: Text(ot),
-                      );
-                    }).toList(),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  labelText: 'Değer Türü',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
+                  prefixIcon: const Icon(Icons.timeline),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 1,
-                  child: DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      labelText: 'Değer Türü',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.timeline),
+                value: _secilenDegerTuru.isEmpty ? null : _secilenDegerTuru,
+                onChanged: _onDegerTuruChanged,
+                isExpanded: true, // Bu satırı ekledim
+                items: _degerTurleri[_secilenOlcumTuru]?.map((dt) {
+                  return DropdownMenuItem<String>(
+                    value: dt,
+                    child: Text(
+                      dt,
+                      overflow: TextOverflow.ellipsis, // Bu satırı ekledim
                     ),
-                    value: _secilenDegerTuru,
-                    onChanged: _onDegerTuruChanged,
-                    items: _degerTurleri[_secilenOlcumTuru]?.map((dt) {
-                      return DropdownMenuItem<String>(
-                        value: dt,
-                        child: Text(dt),
-                      );
-                    }).toList() ?? [],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+                  );
+                }).toList() ?? [],
+              ),
+            ],
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
   
   Widget _buildTimeRangeFilter() {
     return Card(
@@ -349,55 +383,58 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
   }
   
   Widget _buildAnalysisResults() {
+    if (_analysis == null) return const SizedBox.shrink();
+    
     // Birim belirle
     String unit = '';
     bool isHigherBetter = true;
     
-    switch (_secilenDegerTuru) {
-      case 'Yukseklik':
+    switch (_secilenDegerTuru.toLowerCase()) {
+      case 'yukseklik':
         unit = 'cm';
         isHigherBetter = true;
         break;
-      case 'UcusSuresi':
+      case 'ucussuresi':
         unit = 's';
         isHigherBetter = true;
         break;
-      case 'Guc':
+      case 'guc':
         unit = 'W';
         isHigherBetter = true;
         break;
-      case 'TemasSuresi':
+      case 'temassuresi':
         unit = 's';
         isHigherBetter = false; // Düşük temas süresi daha iyidir
         break;
-      case 'Kapi1':
-      case 'Kapi2':
-      case 'Kapi3':
-      case 'Kapi4':
-      case 'Kapi5':
-      case 'Kapi6':
-      case 'Kapi7':
+      case 'kapi1':
+      case 'kapi2':
+      case 'kapi3':
+      case 'kapi4':
+      case 'kapi5':
+      case 'kapi6':
+      case 'kapi7':
         unit = 's';
         isHigherBetter = false; // Düşük sprint zamanı daha iyidir
         break;
       default:
+        unit = '';
         break;
     }
     
     // Analiz sonuçlarını ayıkla
-    final performanceValues = _analysis!['performanceValues'] as List<double>;
-    final dates = _analysis!['dates'] as List<String>;
+    final performanceValues = List<double>.from(_analysis!['performanceValues'] ?? []);
+    final dates = List<String>.from(_analysis!['dates'] ?? []);
     
     // Varsayılan değerler
     double? swc = _analysis!['swc'] as double?;
     double? mdc;
     
-    // Güvenilirlik verilerini yükle
+    // Güvenilirlik verilerini yükle (asenkron olduğu için FutureBuilder kullanmamız gerekebilir)
     _databaseService.getTestGuvenilirlik(
       olcumTuru: _secilenOlcumTuru,
       degerTuru: _secilenDegerTuru,
     ).then((value) {
-      if (value != null) {
+      if (value != null && mounted) {
         setState(() {
           mdc = value['MDC95'] as double?;
           
@@ -476,7 +513,7 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
     final firstValue = performanceValues.first;
     final lastValue = performanceValues.last;
     final change = lastValue - firstValue;
-    final percentChange = (change / firstValue) * 100;
+    final percentChange = firstValue != 0 ? (change / firstValue) * 100 : 0;
     
     // Değişimin yönü
     final isPositiveChange = isHigherBetter ? change > 0 : change < 0;
@@ -514,7 +551,7 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
       } else if (isPracticallyMeaningful) {
         comment = 'Sporcu performansında ${percentChange.abs().toStringAsFixed(1)}% oranında praktik olarak önemli bir değişim gözlemlenmiştir (>SWC), ancak bu değişim ölçüm hatası sınırları içinde olabilir.';
       } else {
-        comment = 'Sporcu performansında ${percentChange.abs().toStringAsFixed(1)}% oranında bir değişim gözlemlenmiştir, ancak bu değişim ne ölçüm hatasının ötesinde ne de minimal değerli değişim eşiğinin üzerindedir.';
+        comment = 'Sporcu performansında ${percentChange.abs().toStringAsFixed(1)}% oranında bir değişim gözlemlenmiştir, ancak bu değişim ne ölçüm hatasının ötesinde ne de minimal değerli değişim eşiğinin üverindedir.';
       }
     }
     
@@ -575,7 +612,7 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> {
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: Colors.red),
+          const Icon(Icons.error_outline, color: Colors.red),
           const SizedBox(width: 16),
           Expanded(
             child: Text(

@@ -12,6 +12,7 @@ import 'ilerleme_raporu_screen.dart';
 import 'test_karsilastirma_screen.dart';
 import '../models/sporcu_model.dart';
 import '../services/database_service.dart';
+import 'performance_analysis_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -247,55 +248,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showSporcuGerekmesiDialog(String feature) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.person, color: Color(0xFF1565C0)),
-            const SizedBox(width: 8),
-            Text('$feature için Sporcu Seçimi'),
-          ],
-        ),
-        content: Text(
-          '$feature özelliğini kullanmak için önce bir sporcu seçmelisiniz.'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SporcuSecimScreen()),
-              ).then((selectedId) {
-                if (selectedId != null && mounted) {
-                  setState(() => _selectedSporcuId = selectedId);
-                  
-                  if (feature == 'İlerleme Raporu') {
-                    _navigateToIlerlemeRaporu();
-                  } else if (feature == 'Test Karşılaştırması') {
-                    _navigateToTestKarsilastirma();
-                  }
-                }
-              });
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1565C0),
-            ),
-            child: const Text(
-              'Sporcu Seç',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row( // This is the Row at line 255
+        children: [
+          const Icon(Icons.person, color: Color(0xFF1565C0)),
+          const SizedBox(width: 8),
+          Text('$feature için Sporcu Seçimi'), // This Text widget is likely causing the overflow
         ],
       ),
-    );
-  }
+      content: Text(
+        '$feature özelliğini kullanmak için önce bir sporcu seçmelisiniz.'
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('İptal'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SporcuSecimScreen()),
+            ).then((selectedId) {
+              if (selectedId != null && mounted) {
+                setState(() => _selectedSporcuId = selectedId);
+                
+                if (feature == 'İlerleme Raporu') {
+                  _navigateToIlerlemeRaporu();
+                } else if (feature == 'Test Karşılaştırması') {
+                  _navigateToTestKarsilastirma();
+                } else if (feature == 'Performans Analizi') {
+                  _navigateToPerformanceAnalysis();
+                }
+              }
+            });
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1565C0),
+          ),
+          child: const Text(
+            'Sporcu Seç',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   void _showTestTuruSecimDialog() {
     showDialog(
@@ -400,125 +403,145 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       bottomNavigationBar: _buildBottomNavigation(),
     );
   }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
+Widget _buildHeader() {
+  return Container(
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.asset(
-                      'assets/images/logo.png',
-                      height: 40,
-                      width: 40,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          height: 40,
-                          width: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.sports, color: Colors.white),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'İzLab Sports',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'izSel Hibrit',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white),
-                  onPressed: _loadData,
-                  tooltip: 'Yenile',
-                ),
-              ),
-            ],
-          ),
-          if (_selectedSporcuId != null) ...[
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
+      borderRadius: BorderRadius.only(
+        bottomLeft: Radius.circular(32),
+        bottomRight: Radius.circular(32),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              flex: 3,
               child: Row(
                 children: [
-                  const Icon(Icons.person, color: Colors.white70, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Seçili Sporcu: ${_athletes.firstWhere((a) => a.id == _selectedSporcuId, orElse: () => Sporcu(ad: 'Bilinmeyen', soyad: '', yas: 0, cinsiyet: '')).ad}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        height: 40,
+                        width: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            height: 40,
+                            width: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.sports, color: Colors.white),
+                          );
+                        },
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => setState(() => _selectedSporcuId = null),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Icon(Icons.close, color: Colors.white, size: 16),
+                  const SizedBox(width: 8), // Boşluğu azalttık
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'İzLab Sports',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18, // Font boyutunu azalttık
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        Text(
+                          'izSel Hibrit',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12, // Font boyutunu azalttık
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
+            SizedBox(
+              width: 48, // Sabit genişlik
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white, size: 20), // Icon boyutunu azalttık
+                  onPressed: _loadData,
+                  tooltip: 'Yenile',
+                ),
+              ),
+            ),
           ],
+        ),
+        if (_selectedSporcuId != null) ...[
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person, color: Colors.white70, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Seçili Sporcu: ${_athletes.firstWhere((a) => a.id == _selectedSporcuId, orElse: () => Sporcu(ad: 'Bilinmeyen', soyad: '', yas: 0, cinsiyet: '')).ad}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => setState(() => _selectedSporcuId = null),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white, size: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
-      ),
-    );
-  }
-
+      ],
+    ),
+  );
+}
   Widget _buildQuickActions() {
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -603,75 +626,87 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
-
-  Widget _buildAdvancedAnalysis() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Gelişmiş Analizler',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          Row(
+Widget _buildAdvancedAnalysis() {
+  return Padding(
+    padding: const EdgeInsets.all(20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Gelişmiş Analizler',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
             children: [
-              Expanded(
-                child: _buildAnalysisCard(
-                  'İlerleme Raporu',
-                  'Zaman içindeki gelişimi görüntüle',
-                  Icons.trending_up,
-                  const Color(0xFF4DB6AC),
-                  _navigateToIlerlemeRaporu,
-                ),
+              _buildAnalysisCard(
+                'İlerleme Raporu',
+                'Zaman içindeki gelişimi görüntüle',
+                Icons.trending_up,
+                const Color(0xFF4DB6AC),
+                _navigateToIlerlemeRaporu,
               ),
               const SizedBox(width: 12),
-              Expanded(
-                child: _buildAnalysisCard(
-                  'Test Karşılaştırma',
-                  'Farklı testleri karşılaştır',
-                  Icons.compare_arrows,
-                  const Color(0xFF9575CD),
-                  _navigateToTestKarsilastirma,
+              _buildAnalysisCard(
+                'Test Karşılaştırma',
+                'Farklı testleri karşılaştır',
+                Icons.compare_arrows,
+                const Color(0xFF9575CD),
+                _navigateToTestKarsilastirma,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildAnalysisCard(
+                'Performans Analizi',
+                'İstatistiksel performans değerlendirmesi',
+                Icons.analytics,
+                const Color(0xFF42A5F5),
+                _navigateToPerformanceAnalysis,
+              ),
+              const SizedBox(width: 12),
+              _buildAnalysisCard(
+                'Dikey Profil',
+                'Sıçrama performansı analizi',
+                Icons.show_chart,
+                const Color(0xFF64B5F6),
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DikeyProfilScreen()),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
             children: [
-              Expanded(
-                child: _buildAnalysisCard(
-                  'Dikey Profil',
-                  'Sıçrama performansı analizi',
-                  Icons.show_chart,
-                  const Color(0xFF64B5F6),
-                  () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DikeyProfilScreen()),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildAnalysisCard(
-                  'Yatay Profil',
-                  'Sprint performansı analizi',
-                  Icons.swap_horiz,
-                  const Color(0xFFE57373),
-                  () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const YatayProfilScreen()),
-                  ),
+              _buildAnalysisCard(
+                'Yatay Profil',
+                'Sprint performansı analizi',
+                Icons.swap_horiz,
+                const Color(0xFFE57373),
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const YatayProfilScreen()),
                 ),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildRecentAthletes() {
     return Padding(
@@ -734,6 +769,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  
 
   Widget _buildTestCard(
     String title,
@@ -801,6 +838,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+
+
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -838,122 +877,144 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildAnalysisCard(
-    String title,
-    String subtitle,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.2)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  Widget _buildAthleteCard(Sporcu sporcu) {
-    final isSelected = _selectedSporcuId == sporcu.id;
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+  Widget _buildAnalysisCard(
+  String title,
+  String subtitle,
+  IconData icon,
+  Color color,
+  VoidCallback onTap,
+) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      height: 120, // Sabit yükseklik ekledim
+      padding: const EdgeInsets.all(12), // Padding'i azalttım
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected ? const Color(0xFF1E88E5) : Colors.transparent,
-          width: 2,
-        ),
+        border: Border.all(color: color.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: color.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: ListTile(
-        onTap: () {
-          setState(() => _selectedSporcuId = sporcu.id);
-         _showSuccessSnackBar('${sporcu.ad} ${sporcu.soyad} seçildi');
-       },
-       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-       leading: CircleAvatar(
-         radius: 24,
-         backgroundColor: isSelected ? const Color(0xFF1E88E5) : const Color(0xFFE3F2FD),
-         child: Text(
-           '${sporcu.ad[0]}${sporcu.soyad[0]}'.toUpperCase(),
-           style: TextStyle(
-             color: isSelected ? Colors.white : const Color(0xFF1E88E5),
-             fontWeight: FontWeight.bold,
-           ),
-         ),
-       ),
-       title: Text(
-         '${sporcu.ad} ${sporcu.soyad}',
-         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-       ),
-       subtitle: Text('Yaş: ${sporcu.yas} • ${sporcu.cinsiyet}'),
-       trailing: isSelected
-           ? Container(
-               padding: const EdgeInsets.all(6),
-               decoration: const BoxDecoration(
-                 color: Color(0xFF1E88E5),
-                 shape: BoxShape.circle,
-               ),
-               child: const Icon(Icons.check, color: Colors.white, size: 16),
-             )
-           : Icon(Icons.chevron_right, color: Colors.grey[400]),
-     ),
-   );
- }
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween, // Bu satırı ekledim
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6), // Padding'i azalttım
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20), // Icon boyutunu azalttım
+          ),
+          const SizedBox(height: 8),
+          Expanded( // Text kısmını Expanded ile sardım
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13, // Font boyutunu azalttım
+                  ),
+                  maxLines: 2, // Maksimum 2 satır
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11, // Font boyutunu azalttım
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 3, // Maksimum 3 satır
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
+ Widget _buildAthleteCard(Sporcu sporcu) {
+  final isSelected = _selectedSporcuId == sporcu.id;
+  
+  return Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: isSelected ? const Color(0xFF1E88E5) : Colors.transparent,
+        width: 2,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    ),
+    child: ListTile(
+      onTap: () {
+        setState(() => _selectedSporcuId = sporcu.id);
+        _showSuccessSnackBar('${sporcu.ad} ${sporcu.soyad} seçildi');
+      },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Padding azaltıldı
+      leading: CircleAvatar(
+        radius: 20, // Boyut azaltıldı
+        backgroundColor: isSelected ? const Color(0xFF1E88E5) : const Color(0xFFE3F2FD),
+        child: Text(
+          '${sporcu.ad[0]}${sporcu.soyad[0]}'.toUpperCase(),
+          style: TextStyle(
+            color: isSelected ? Colors.white : const Color(0xFF1E88E5),
+            fontWeight: FontWeight.bold,
+            fontSize: 14, // Font boyutu azaltıldı
+          ),
+        ),
+      ),
+      title: Text(
+        '${sporcu.ad} ${sporcu.soyad}',
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), // Font boyutu azaltıldı
+        overflow: TextOverflow.ellipsis, // Overflow koruması
+        maxLines: 1,
+      ),
+      subtitle: Text(
+        'Yaş: ${sporcu.yas} • ${sporcu.cinsiyet}',
+        style: const TextStyle(fontSize: 13), // Font boyutu azaltıldı
+        overflow: TextOverflow.ellipsis, // Overflow koruması
+        maxLines: 1,
+      ),
+      trailing: SizedBox(
+        width: 24, // Sabit genişlik
+        child: isSelected
+            ? Container(
+                padding: const EdgeInsets.all(4), // Padding azaltıldı
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E88E5),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 14), // Icon boyutu azaltıldı
+              )
+            : Icon(Icons.chevron_right, color: Colors.grey[400], size: 20), // Icon boyutu azaltıldı
+      ),
+    ),
+  );
+}
  Widget _buildBottomNavigation() {
    return Container(
      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1032,6 +1093,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
      ),
    );
  }
+
+
+void _navigateToPerformanceAnalysis() {
+  if (_selectedSporcuId == null) {
+    _showSporcuGerekmesiDialog('Performans Analizi');
+  } else {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PerformanceAnalysisScreen(
+          sporcuId: _selectedSporcuId,
+        ),
+      ),
+    );
+  }
+}
 
  void _showSettingsDialog() {
    showDialog(

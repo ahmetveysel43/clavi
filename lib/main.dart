@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // kDebugMode için eklendi
+import 'package:flutter/foundation.dart';
 import 'screens/home_screen.dart';
 import 'screens/sprint_screen.dart';
 import 'screens/jump_screen.dart';
@@ -12,21 +12,15 @@ import 'screens/ilerleme_raporu_screen.dart';
 import 'screens/test_karsilastirma_screen.dart';
 import 'screens/performance_analysis_screen.dart';
 import 'services/database_service.dart';
-import 'models/sporcu_model.dart'; // Sporcu modeli import edildi
+import 'models/sporcu_model.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // SADECE GELİŞTİRME AŞAMASINDA ÖRNEK VERİ EKLEMEK İÇİN:
-  if (kDebugMode) { // kDebugMode sadece debug modda true olur
+  if (kDebugMode) {
     final dbService = DatabaseService();
     
-    // Veritabanını tamamen silip yeniden oluşturmak isterseniz aşağıdaki satırları aktif edin.
-    // DİKKAT: Bu işlem tüm mevcut verileri siler!
-    // await dbService.deleteDatabaseFile(); 
-    // await dbService.database; // Veritabanını yeniden oluşturur (_initDB çağrılır)
-    // debugPrint("Veritabanı silindi ve yeniden oluşturuldu (eğer deleteDatabaseFile aktifse).");
-
     // Örnek verileri sadece veritabanı boşsa veya belirli bir koşulda eklemek için:
     List<Sporcu> mevcutSporcular = await dbService.getAllSporcular();
     if (mevcutSporcular.isEmpty) {
@@ -78,8 +72,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
         ),
-        // HATA MESAJINA GÖRE DÜZELTİLMİŞ KISIM:
-        cardTheme: CardThemeData( // CardThemeData constructor'ı KULLANILIYOR
+        cardTheme: CardThemeData(
           elevation: 2.0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12.0),

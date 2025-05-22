@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'dart:math' as math; // Math kütüphanesi eklendi
-import '../models/olcum_model.dart'; ////
-import '../utils/statistics_helper.dart'; //
-import 'database_service.dart'; //
+import 'dart:math' as math;
+import '../models/olcum_model.dart';
+import '../utils/statistics_helper.dart';
+import 'database_service.dart';
 
 class PerformanceAnalysisService {
   final DatabaseService _databaseService = DatabaseService();
@@ -17,29 +17,29 @@ class PerformanceAnalysisService {
   }) async {
     try {
       // Sporcu ölçümlerini al
-      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId); //
+      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
       
       // Ölçüm türüne göre filtrele
       final filteredOlcumler = olcumler.where((o) => 
-        o.olcumTuru.toUpperCase() == olcumTuru.toUpperCase()).toList(); //
+        o.olcumTuru.toUpperCase() == olcumTuru.toUpperCase()).toList();
       
       if (filteredOlcumler.isEmpty) {
-        return {'error': 'Bu ölçüm türünde veri bulunamadı'}; //
+        return {'error': 'Bu ölçüm türünde veri bulunamadı'};
       }
       
       // Ölçümleri tarihe göre sırala (eskiden yeniye)
-      filteredOlcumler.sort((a, b) => a.olcumTarihi.compareTo(b.olcumTarihi)); //
+      filteredOlcumler.sort((a, b) => a.olcumTarihi.compareTo(b.olcumTarihi));
       
       // Zaman aralığına göre filtrele
       if (baslangicTarihi != null) {
-        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(baslangicTarihi) < 0); //
+        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(baslangicTarihi) < 0);
       }
       if (bitisTarihi != null) {
-        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(bitisTarihi) > 0); //
+        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(bitisTarihi) > 0);
       }
       
       if (filteredOlcumler.isEmpty) {
-        return {'error': 'Belirtilen tarih aralığında veri bulunamadı'}; //
+        return {'error': 'Belirtilen tarih aralığında veri bulunamadı'};
       }
       
       // İstenen değer türüne göre değerleri topla
@@ -48,97 +48,95 @@ class PerformanceAnalysisService {
       
       for (var olcum in filteredOlcumler) {
         final deger = olcum.degerler.firstWhere(
-          (d) => d.degerTuru.toUpperCase() == degerTuru.toUpperCase(), //
-          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0), //
+          (d) => d.degerTuru.toUpperCase() == degerTuru.toUpperCase(),
+          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
         );
         
-        if (deger.deger != 0) { //
-          performanceValues.add(deger.deger); //
-          dates.add(olcum.olcumTarihi); //
+        if (deger.deger != 0) {
+          performanceValues.add(deger.deger);
+          dates.add(olcum.olcumTarihi);
         }
       }
       
       if (performanceValues.isEmpty) {
-        return {'error': 'Bu değer türünde veri bulunamadı'}; //
+        return {'error': 'Bu değer türünde veri bulunamadı'};
       }
       
       // Minimum, maksimum ve ilgili tarihler
-      final minValue = performanceValues.reduce((a, b) => a < b ? a : b); //
-      final maxValue = performanceValues.reduce((a, b) => a > b ? a : b); //
-      final minIndex = performanceValues.indexOf(minValue); //
-      final maxIndex = performanceValues.indexOf(maxValue); //
+      final minValue = performanceValues.reduce((a, b) => a < b ? a : b);
+      final maxValue = performanceValues.reduce((a, b) => a > b ? a : b);
+      final minIndex = performanceValues.indexOf(minValue);
+      final maxIndex = performanceValues.indexOf(maxValue);
       
       // İstatistiksel analizler
-      final mean = performanceValues.reduce((a, b) => a + b) / performanceValues.length; //
-      final stdDev = StatisticsHelper.calculateStandardDeviation(performanceValues); //
-      final cvPercentage = (stdDev / mean) * 100; // Varyasyon katsayısı //
+      final mean = performanceValues.reduce((a, b) => a + b) / performanceValues.length;
+      final stdDev = StatisticsHelper.calculateStandardDeviation(performanceValues);
+// Sıfıra bölme koruması
       
       // Tipiklik indeksi (tutarlılık ölçüsü)
-      final typicalityIndex = StatisticsHelper.calculateTypicalityIndex(performanceValues); //
+      final typicalityIndex = StatisticsHelper.calculateTypicalityIndex(performanceValues);
       
       // Trend analizi
-      final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(performanceValues); //
+      final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(performanceValues);
       
       // Son durumda performans momentumu (son 3 ölçüm)
       double momentum = 0;
       if (performanceValues.length >= 6) {
-        momentum = StatisticsHelper.calculateMomentum(performanceValues); //
+        momentum = StatisticsHelper.calculateMomentum(performanceValues);
       }
       
       // SWC (En Küçük Değerli Değişim) hesaplaması
-      final swc = StatisticsHelper.calculateSWC(performanceValues); //
+      final swc = StatisticsHelper.calculateSWC(performanceValues);
       
       // Başlangıç-bitiş değişimi
-      final startValue = performanceValues.first; //
-      final endValue = performanceValues.last; //
-      final totalChange = endValue - startValue; //
-      final percentChange = (totalChange / startValue) * 100; //
+      final startValue = performanceValues.first;
+      final endValue = performanceValues.last;
+      final totalChange = endValue - startValue;
+      final percentChange = startValue != 0 ? (totalChange / startValue) * 100 : 0; // Sıfıra bölme koruması
       
-      // Analizin kendisi
-      // final now = DateTime.now().toIso8601String(); // Bu satır kullanılmadığı için kaldırıldı.
       final analysis = {
-        'performanceValues': performanceValues, //
-        'dates': dates, //
-        'mean': mean, //
-        'stdDev': stdDev, //
-        'cvPercentage': cvPercentage, //
-        'typicalityIndex': typicalityIndex, //
-        'trend': trendAnalysis['trend'], //
-        'stability': trendAnalysis['stability'], //
-        'momentum': momentum, //
-        'swc': swc, //
-        'minValue': minValue, //
-        'maxValue': maxValue, //
-        'minDate': dates[minIndex], //
-        'maxDate': dates[maxIndex], //
-        'startValue': startValue, //
-        'endValue': endValue, //
-        'totalChange': totalChange, //
-        'percentChange': percentChange, //
-        'firstDate': dates.first, //
-        'lastDate': dates.last, //
-        'numberOfSamples': performanceValues.length, //
+        'performanceValues': performanceValues,
+        'dates': dates,
+        'mean': mean,
+        'stdDev': stdDev,
+        'cvPercentage': stdDev > 0 ? (stdDev / mean) * 100 : 0,
+        'typicalityIndex': typicalityIndex,
+        'trend': trendAnalysis['trend'] ?? 0.0,
+        'stability': trendAnalysis['stability'] ?? 0.0,
+        'momentum': momentum,
+        'swc': swc,
+        'minValue': minValue,
+        'maxValue': maxValue,
+        'minDate': dates[minIndex],
+        'maxDate': dates[maxIndex],
+        'startValue': startValue,
+        'endValue': endValue,
+        'totalChange': totalChange,
+        'percentChange': percentChange,
+        'firstDate': dates.first,
+        'lastDate': dates.last,
+        'numberOfSamples': performanceValues.length,
       };
       
       // Analiz sonuçlarını veritabanına kaydet
       await _databaseService.savePerformansAnaliz(
-        sporcuId: sporcuId, //
-        olcumTuru: olcumTuru, //
-        degerTuru: degerTuru, //
-        baslangicTarihi: dates.first, //
-        bitisTarihi: dates.last, //
-        ortalama: mean, //
-        stdDev: stdDev, //
-        cvYuzde: cvPercentage, //
-        trendSlope: trendAnalysis['trend'] as double, //
-        momentum: momentum, //
-        typicalityIndex: typicalityIndex, //
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        baslangicTarihi: dates.first,
+        bitisTarihi: dates.last,
+        ortalama: mean,
+        stdDev: stdDev,
+        cvYuzde: stdDev > 0 ? (stdDev / mean) * 100 : 0,
+        trendSlope: (trendAnalysis['trend'] ?? 0.0).toDouble(),
+        momentum: momentum,
+        typicalityIndex: typicalityIndex,
       );
       
       return analysis;
     } catch (e) {
-      debugPrint('Performans analizi hatası: $e'); //
-      return {'error': 'Analiz sırasında bir hata oluştu: $e'}; //
+      debugPrint('Performans analizi hatası: $e');
+      return {'error': 'Analiz sırasında bir hata oluştu: $e'};
     }
   }
   
@@ -152,57 +150,57 @@ class PerformanceAnalysisService {
     try {
       // Test güvenilirlik verilerini al
       final guvenilirlik = await _databaseService.getTestGuvenilirlik(
-        olcumTuru: olcumTuru, //
-        degerTuru: degerTuru, //
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
       );
       
       // Değişim miktarı
-      final change = postValue - preValue; //
-      final percentChange = (change / preValue) * 100; //
+      final change = postValue - preValue;
+      final percentChange = preValue != 0 ? (change / preValue) * 100 : 0; // Sıfıra bölme koruması
       
       // Sonuç
       Map<String, dynamic> result = {
-        'preValue': preValue, //
-        'postValue': postValue, //
-        'absoluteChange': change, //
-        'percentChange': percentChange, //
+        'preValue': preValue,
+        'postValue': postValue,
+        'absoluteChange': change,
+        'percentChange': percentChange,
       };
       
       // Eğer güvenilirlik verileri mevcutsa anlamlılık değerlendirmesi yap
       if (guvenilirlik != null) {
-        final sem = guvenilirlik['TestRetestSEM'] as double?; //
-        final mdc95 = guvenilirlik['MDC95'] as double?; //
-        final swc = guvenilirlik['SWC'] as double?; //
+        final sem = guvenilirlik['TestRetestSEM'] as double?;
+        final mdc95 = guvenilirlik['MDC95'] as double?;
+        final swc = guvenilirlik['SWC'] as double?;
         
-        if (sem != null) {
-          final rci = StatisticsHelper.calculateRCI(preValue, postValue, sem); //
-          result['rci'] = rci; //
-          result['isReliableChange'] = rci.abs() > 1.96; // %95 güven aralığı //
+        if (sem != null && sem > 0) {
+          final rci = StatisticsHelper.calculateRCI(preValue, postValue, sem);
+          result['rci'] = rci;
+          result['isReliableChange'] = rci.abs() > 1.96; // %95 güven aralığı
         }
         
         if (mdc95 != null) {
-          result['mdc95'] = mdc95; //
-          result['exceedsMDC'] = change.abs() > mdc95; //
+          result['mdc95'] = mdc95;
+          result['exceedsMDC'] = change.abs() > mdc95;
         }
         
         if (swc != null) {
-          result['swc'] = swc; //
-          result['exceedsSWC'] = change.abs() > swc; //
+          result['swc'] = swc;
+          result['exceedsSWC'] = change.abs() > swc;
         }
         
         // Genel değerlendirme
         result['isSignificantChange'] = 
           (result['exceedsMDC'] as bool? ?? false) || 
-          (result['isReliableChange'] as bool? ?? false); //
+          (result['isReliableChange'] as bool? ?? false);
         
         result['isPracticallyMeaningful'] = 
-          (result['exceedsSWC'] as bool? ?? false); //
+          (result['exceedsSWC'] as bool? ?? false);
       }
       
       return result;
     } catch (e) {
-      debugPrint('Performans değişimi değerlendirme hatası: $e'); //
-      return {'error': 'Değerlendirme sırasında bir hata oluştu: $e'}; //
+      debugPrint('Performans değişimi değerlendirme hatası: $e');
+      return {'error': 'Değerlendirme sırasında bir hata oluştu: $e'};
     }
   }
   
@@ -222,44 +220,44 @@ class PerformanceAnalysisService {
       
       // MDC hesapla
       final mdc = StatisticsHelper.calculateMDC(
-        testRetestData, //
-        confidenceLevel: confidenceLevel //
+        testRetestData,
+        confidenceLevel: confidenceLevel
       );
       
       // Test-retest farkları
       List<double> differences = [];
       for (int i = 0; i < testRetestData.length; i += 2) {
-        differences.add(testRetestData[i] - testRetestData[i + 1]); //
+        differences.add(testRetestData[i] - testRetestData[i + 1]);
       }
       
       // SEM hesapla
-      final stdDev = StatisticsHelper.calculateStandardDeviation(differences); //
-      final sem = stdDev / math.sqrt(2); //
+      final stdDev = StatisticsHelper.calculateStandardDeviation(differences);
+      final sem = stdDev / math.sqrt(2);
       
       // SWC hesapla
       final List<double> uniqueValues = [];
       for (int i = 0; i < testRetestData.length; i += 2) {
-        uniqueValues.add(testRetestData[i]); //
+        uniqueValues.add(testRetestData[i]);
       }
       
       final swc = StatisticsHelper.calculateSWC(
-        uniqueValues, //
-        method: swcMethod, //
-        coefficient: swcCoefficient, //
+        uniqueValues,
+        method: swcMethod,
+        coefficient: swcCoefficient,
       );
       
       // Veritabanına kaydet
       await _databaseService.saveTestGuvenilirlik(
-        olcumTuru: olcumTuru, //
-        degerTuru: degerTuru, //
-        testRetestSEM: sem, //
-        mdc95: mdc, //
-        swc: swc, //
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        testRetestSEM: sem,
+        mdc95: mdc,
+        swc: swc,
       );
       
       return true;
     } catch (e) {
-      debugPrint('Test güvenilirlik verisi güncellenirken hata: $e'); //
+      debugPrint('Test güvenilirlik verisi güncellenirken hata: $e');
       return false;
     }
   }
@@ -274,35 +272,40 @@ class PerformanceAnalysisService {
     try {
       // Son analizi veritabanından çekmeyi dene
       final cachedAnalysis = await _databaseService.getPerformansAnaliz(
-        sporcuId: sporcuId, //
-        olcumTuru: olcumTuru, //
-        degerTuru: degerTuru, //
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
       );
       
       // Eğer önbellekteki analiz çok eskiyse (>7 gün) yeniden hesapla
       if (cachedAnalysis != null) {
-        final lastAnalysisDate = DateTime.parse(cachedAnalysis['SonAnalizTarihi'] as String); //
-        final now = DateTime.now();
-        final difference = now.difference(lastAnalysisDate).inDays; //
-        
-        if (difference <= 7) {
-          // Önbelleği kullan
-          return cachedAnalysis; //
+        try {
+          final lastAnalysisDate = DateTime.parse(cachedAnalysis['SonAnalizTarihi'] as String);
+          final now = DateTime.now();
+          final difference = now.difference(lastAnalysisDate).inDays;
+          
+          if (difference <= 7) {
+            // Önbelleği kullan
+            return cachedAnalysis;
+          }
+        } catch (e) {
+          debugPrint('Tarih parse hatası: $e');
+          // Tarih parse edilemezse yeniden hesapla
         }
       }
       
       // Analizi yeniden hesapla
-      final baslangicTarihi = DateTime.now().subtract(Duration(days: lastNDays)).toIso8601String(); //
+      final baslangicTarihi = DateTime.now().subtract(Duration(days: lastNDays)).toIso8601String();
       
       return await analyzePerformanceOverTime(
-        sporcuId: sporcuId, //
-        olcumTuru: olcumTuru, //
-        degerTuru: degerTuru, //
-        baslangicTarihi: baslangicTarihi, //
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        baslangicTarihi: baslangicTarihi,
       );
     } catch (e) {
-      debugPrint('Performans özeti alınırken hata: $e'); //
-      return {'error': 'Performans özeti alınırken bir hata oluştu: $e'}; //
+      debugPrint('Performans özeti alınırken hata: $e');
+      return {'error': 'Performans özeti alınırken bir hata oluştu: $e'};
     }
   }
 }
