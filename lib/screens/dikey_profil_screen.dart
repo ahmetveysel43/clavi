@@ -63,97 +63,170 @@ class _DikeyProfilScreenState extends State<DikeyProfilScreen> {
   }
 
   Future<void> _loadSporcuOlcumleri(int sporcuId) async {
-    setState(() => _isLoading = true);
-    try {
-      // Sporcu bilgilerini al
-      _secilenSporcu = await _databaseService.getSporcu(sporcuId);
-      if (_secilenSporcu == null) {
-        throw Exception('Sporcu bulunamadı');
-      }
+  setState(() => _isLoading = true);
+  try {
+    // Sporcu bilgilerini al
+    _secilenSporcu = await _databaseService.getSporcu(sporcuId);
+    if (_secilenSporcu == null) {
+      throw Exception('Sporcu bulunamadı');
+    }
 
-      // Vücut ağırlığı, bacak boyu ve oturma boyu bilgilerini al
-      if (_secilenSporcu!.kilo != null && _secilenSporcu!.kilo!.isNotEmpty) {
-        _bodyMass = double.parse(_secilenSporcu!.kilo!);
-      } else {
-        _bodyMass = 0.0;
-        throw Exception('Vücut ağırlığı bilgisi bulunamadı');
-      }
+    // Vücut ağırlığı, bacak boyu ve oturma boyu bilgilerini al
+    if (_secilenSporcu!.kilo != null && _secilenSporcu!.kilo!.isNotEmpty) {
+      _bodyMass = double.parse(_secilenSporcu!.kilo!);
+    } else {
+      _bodyMass = 0.0;
+      throw Exception('Vücut ağırlığı bilgisi bulunamadı');
+    }
 
-      if (_secilenSporcu!.bacakBoyu != null && _secilenSporcu!.bacakBoyu!.isNotEmpty) {
-        _legLength = double.parse(_secilenSporcu!.bacakBoyu!);
-      } else {
-        _legLength = 0.0;
-        throw Exception('Bacak boyu bilgisi bulunamadı');
-      }
+    if (_secilenSporcu!.bacakBoyu != null && _secilenSporcu!.bacakBoyu!.isNotEmpty) {
+      _legLength = double.parse(_secilenSporcu!.bacakBoyu!);
+    } else {
+      _legLength = 0.0;
+      throw Exception('Bacak boyu bilgisi bulunamadı');
+    }
 
-      if (_secilenSporcu!.oturmaBoyu != null && _secilenSporcu!.oturmaBoyu!.isNotEmpty) {
-        _sittingHeight = double.parse(_secilenSporcu!.oturmaBoyu!);
-      } else {
-        _sittingHeight = 0.0;
-        throw Exception('Oturma boyu bilgisi bulunamadı');
-      }
+    if (_secilenSporcu!.oturmaBoyu != null && _secilenSporcu!.oturmaBoyu!.isNotEmpty) {
+      _sittingHeight = double.parse(_secilenSporcu!.oturmaBoyu!);
+    } else {
+      _sittingHeight = 0.0;
+      throw Exception('Oturma boyu bilgisi bulunamadı');
+    }
 
-      // İtme mesafesini hesapla (m)
-      _pushOffDistance = (_legLength - _sittingHeight) / 100.0;
-      if (_pushOffDistance <= 0) {
-        throw Exception(
-            'İtme mesafesi hesaplanamadı: $_pushOffDistance (Bacak boyu: $_legLength cm, Oturma boyu: $_sittingHeight cm)');
-      }
+    // İtme mesafesini hesapla (m)
+    _pushOffDistance = (_legLength - _sittingHeight) / 100.0;
+    if (_pushOffDistance <= 0) {
+      throw Exception(
+          'İtme mesafesi hesaplanamadı: $_pushOffDistance (Bacak boyu: $_legLength cm, Oturma boyu: $_sittingHeight cm)');
+    }
 
-      // Ölçümleri al
-      _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+    // Ölçümleri al
+    _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+    debugPrint('DikeyProfilScreen: Toplam ölçüm sayısı: ${_olcumler.length}');
 
-      // Sadece CMJ ve SJ ölçümlerini filtrele
-      _tumOlcumler = _olcumler
-          .where((olcum) => olcum.olcumTuru == 'CMJ' || olcum.olcumTuru == 'SJ')
-          .toList();
-
-      if (_tumOlcumler.isEmpty) {
-        throw Exception('Sıçrama (CMJ veya SJ) ölçümü bulunamadı.');
-      }
-
-      // İlk başta tüm ölçümler seçili olsun
-      _seciliOlcumler = List.filled(_tumOlcumler.length, true);
+    // Her ölçümün değerlerini kontrol et ve eksikse tekrar yükle
+    for (int i = 0; i < _olcumler.length; i++) {
+      var olcum = _olcumler[i];
+      debugPrint('DikeyProfilScreen: Ölçüm ID: ${olcum.id}, Tür: ${olcum.olcumTuru}, Mevcut değer sayısı: ${olcum.degerler.length}');
       
-      // Seçili ölçümleri güncelle
-      _updateSelectedOlcumler();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
+      // Eğer değerler boşsa, manuel olarak yükle
+      if (olcum.degerler.isEmpty && olcum.id != null) {
+        debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için değerler manuel olarak yükleniyor...');
+        try {
+          List<OlcumDeger> degerler = await _databaseService.getOlcumDegerlerByOlcumId(olcum.id!);
+          olcum.degerler = degerler;
+          debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için ${degerler.length} değer yüklendi');
+          
+          // Değerleri listele
+          for (var deger in degerler) {
+            debugPrint('  DikeyProfilScreen: Değer türü: ${deger.degerTuru}, Değer: ${deger.deger}');
+          }
+        } catch (e) {
+          debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için değerler yüklenirken hata: $e');
+        }
       }
     }
-  }
 
-  void _updateSelectedOlcumler() {
-    _hesaplamayaGirecekOlcumler = [];
+    // Sadece CMJ ve SJ ölçümlerini filtrele
+    _tumOlcumler = _olcumler
+        .where((olcum) => olcum.olcumTuru == 'CMJ' || olcum.olcumTuru == 'SJ')
+        .toList();
+
+    debugPrint('DikeyProfilScreen: CMJ/SJ ölçüm sayısı: ${_tumOlcumler.length}');
     
-    // Seçili ölçümleri listeye ekle
-    for (int i = 0; i < _tumOlcumler.length; i++) {
-      if (i < _seciliOlcumler.length && _seciliOlcumler[i]) {
-        _hesaplamayaGirecekOlcumler.add(_tumOlcumler[i]);
+    // Filtrelenmiş ölçümlerin değerlerini tekrar kontrol et
+    for (var olcum in _tumOlcumler) {
+      debugPrint('DikeyProfilScreen: Filtrelenmiş ölçüm ID: ${olcum.id}, Tür: ${olcum.olcumTuru}, Değer sayısı: ${olcum.degerler.length}');
+      for (var deger in olcum.degerler) {
+        debugPrint('  DikeyProfilScreen: ${deger.degerTuru} = ${deger.deger}');
       }
     }
+
+    if (_tumOlcumler.isEmpty) {
+      throw Exception('Sıçrama (CMJ veya SJ) ölçümü bulunamadı.');
+    }
+
+    // İlk başta tüm ölçümler seçili olsun
+    _seciliOlcumler = List.filled(_tumOlcumler.length, true);
     
-    // Sıçrama yüksekliklerini güncelle
-    _jumpHeights = [];
-    for (var olcum in _hesaplamayaGirecekOlcumler) {
-      var yukseklik = olcum.degerler.firstWhere(
-        (d) => d.degerTuru == 'yukseklik',
-        orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+    // Seçili ölçümleri güncelle
+    _updateSelectedOlcumler();
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e')),
       );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
 
-      if (yukseklik.deger > 0) {
-        _jumpHeights.add(yukseklik.deger);
+void _updateSelectedOlcumler() {
+  debugPrint('DikeyProfilScreen: _updateSelectedOlcumler çağrıldı.');
+  _hesaplamayaGirecekOlcumler = [];
+
+  for (int i = 0; i < _tumOlcumler.length; i++) {
+    if (i < _seciliOlcumler.length && _seciliOlcumler[i]) {
+      _hesaplamayaGirecekOlcumler.add(_tumOlcumler[i]);
+    }
+  }
+  debugPrint('DikeyProfilScreen: _hesaplamayaGirecekOlcumler Sayısı: ${_hesaplamayaGirecekOlcumler.length}');
+
+  _jumpHeights = [];
+  for (var olcum in _hesaplamayaGirecekOlcumler) {
+    debugPrint('DikeyProfilScreen: Yükseklik aranıyor - Olcum ID: ${olcum.id}, Tür: ${olcum.olcumTuru}');
+    debugPrint('DikeyProfilScreen: Ölçüm değerleri sayısı: ${olcum.degerler.length}');
+    
+    // Ölçüm değerlerini listele
+    for (var deger in olcum.degerler) {
+      debugPrint('  DikeyProfilScreen: Değer türü: ${deger.degerTuru}, Değer: ${deger.deger}');
+    }
+    
+    // Yükseklik değerini bul
+    OlcumDeger? yukseklikDegeri;
+    try {
+      yukseklikDegeri = olcum.degerler.firstWhere(
+        (d) => d.degerTuru == 'yukseklik',
+      );
+      debugPrint('  DikeyProfilScreen: Bulunan "yukseklik" değeri: ${yukseklikDegeri.deger}');
+      
+      if (yukseklikDegeri.deger > 0) {
+        _jumpHeights.add(yukseklikDegeri.deger);
+        debugPrint('  DikeyProfilScreen: Yükseklik ${yukseklikDegeri.deger} cm _jumpHeights listesine eklendi.');
+      } else {
+        debugPrint('  DikeyProfilScreen: Yükseklik <= 0 olduğu için _jumpHeights listesine eklenmedi.');
+      }
+    } catch (e) {
+      debugPrint('  DikeyProfilScreen: Olcum ID ${olcum.id} için "yukseklik" değeri bulunamadı. Hata: $e');
+      
+      // Alternatif değer türlerini dene
+      for (String alternatif in ['Height', 'height', 'YUKSEKLIK', 'jump_height']) {
+        try {
+          yukseklikDegeri = olcum.degerler.firstWhere(
+            (d) => d.degerTuru == alternatif,
+          );
+          debugPrint('  DikeyProfilScreen: Alternatif "$alternatif" değeri bulundu: ${yukseklikDegeri.deger}');
+          
+          if (yukseklikDegeri.deger > 0) {
+            _jumpHeights.add(yukseklikDegeri.deger);
+            debugPrint('  DikeyProfilScreen: Alternatif yükseklik ${yukseklikDegeri.deger} cm _jumpHeights listesine eklendi.');
+          }
+          break;
+        } catch (e2) {
+          debugPrint('  DikeyProfilScreen: Alternatif "$alternatif" değeri de bulunamadı.');
+        }
       }
     }
   }
-
+  
+  debugPrint('DikeyProfilScreen: _jumpHeights: $_jumpHeights');
+  debugPrint('DikeyProfilScreen: _jumpHeights toplam sayı: ${_jumpHeights.length}');
+  
+  setState(() {}); // UI'ı güncellemek için
+}
   void _calculateForceVelocityProfile() {
     try {
       // Ölçüm sayısını kontrol et

@@ -8,6 +8,7 @@ import 'sporcu_kayit_screen.dart';
 import 'sporcu_secim_screen.dart';
 import 'dikey_profil_screen.dart';
 import 'yatay_profil_screen.dart';
+import 'load_velocity_profile_screen.dart'; // Yeni eklenen import
 import 'ilerleme_raporu_screen.dart';
 import 'test_karsilastirma_screen.dart';
 import '../models/sporcu_model.dart';
@@ -248,57 +249,56 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showSporcuGerekmesiDialog(String feature) {
-  showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row( // This is the Row at line 255
-        children: [
-          const Icon(Icons.person, color: Color(0xFF1565C0)),
-          const SizedBox(width: 8),
-          Text('$feature için Sporcu Seçimi'), // This Text widget is likely causing the overflow
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: ListTile(
+          leading: const Icon(Icons.person, color: Color(0xFF1565C0)),
+          title: Text('$feature için Sporcu Seçimi'),
+          contentPadding: EdgeInsets.zero,
+        ),
+        content: Text(
+          '$feature özelliğini kullanmak için önce bir sporcu seçmelisiniz.',
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SporcuSecimScreen()),
+              ).then((selectedId) {
+                if (selectedId != null && mounted) {
+                  setState(() => _selectedSporcuId = selectedId);
+                  
+                  if (feature == 'İlerleme Raporu') {
+                    _navigateToIlerlemeRaporu();
+                  } else if (feature == 'Test Karşılaştırması') {
+                    _navigateToTestKarsilastirma();
+                  } else if (feature == 'Performans Analizi') {
+                    _navigateToPerformanceAnalysis();
+                  }
+                }
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1565C0),
+            ),
+            child: const Text(
+              'Sporcu Seç',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
         ],
       ),
-      content: Text(
-        '$feature özelliğini kullanmak için önce bir sporcu seçmelisiniz.'
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('İptal'),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.pop(context);
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SporcuSecimScreen()),
-            ).then((selectedId) {
-              if (selectedId != null && mounted) {
-                setState(() => _selectedSporcuId = selectedId);
-                
-                if (feature == 'İlerleme Raporu') {
-                  _navigateToIlerlemeRaporu();
-                } else if (feature == 'Test Karşılaştırması') {
-                  _navigateToTestKarsilastirma();
-                } else if (feature == 'Performans Analizi') {
-                  _navigateToPerformanceAnalysis();
-                }
-              }
-            });
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1565C0),
-          ),
-          child: const Text(
-            'Sporcu Seç',
-            style: TextStyle(color: Colors.white),
-          ),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
   void _showTestTuruSecimDialog() {
     showDialog(
@@ -403,145 +403,147 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       bottomNavigationBar: _buildBottomNavigation(),
     );
   }
-Widget _buildHeader() {
-  return Container(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(32),
+          bottomRight: Radius.circular(32),
+        ),
       ),
-      borderRadius: BorderRadius.only(
-        bottomLeft: Radius.circular(32),
-        bottomRight: Radius.circular(32),
-      ),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              flex: 3,
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.asset(
-                        'assets/images/logo.png',
-                        height: 40,
-                        width: 40,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            height: 40,
-                            width: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.sports, color: Colors.white),
-                          );
-                        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                flex: 3,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          height: 40,
+                          width: 40,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              height: 40,
+                              width: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.sports, color: Colors.white),
+                            );
+                          },
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'İzLab',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          Text(
+                            'izSel Hibrit',
+                            style: const TextStyle(
+                              color: Color.fromARGB(179, 212, 203, 205),
+                              fontSize: 18,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(width: 8), // Boşluğu azalttık
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                    onPressed: _loadData,
+                    tooltip: 'Yenile',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_selectedSporcuId != null) ...[
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.person, color: Colors.white70, size: 20),
+                  const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'İzLab Sports',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18, // Font boyutunu azalttık
-                            fontWeight: FontWeight.bold,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                        Text(
-                          'izSel Hibrit',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12, // Font boyutunu azalttık
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ],
+                    child: Text(
+                      'Seçili Sporcu: ${_athletes.firstWhere((a) => a.id == _selectedSporcuId, orElse: () => Sporcu(ad: 'Bilinmeyen', soyad: '', yas: 0, cinsiyet: '')).ad}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() => _selectedSporcuId = null),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Icon(Icons.close, color: Colors.white, size: 16),
                     ),
                   ),
                 ],
               ),
             ),
-            SizedBox(
-              width: 48, // Sabit genişlik
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white, size: 20), // Icon boyutunu azalttık
-                  onPressed: _loadData,
-                  tooltip: 'Yenile',
-                ),
-              ),
-            ),
           ],
-        ),
-        if (_selectedSporcuId != null) ...[
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.person, color: Colors.white70, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Seçili Sporcu: ${_athletes.firstWhere((a) => a.id == _selectedSporcuId, orElse: () => Sporcu(ad: 'Bilinmeyen', soyad: '', yas: 0, cinsiyet: '')).ad}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                      fontSize: 14,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () => setState(() => _selectedSporcuId = null),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Icon(Icons.close, color: Colors.white, size: 16),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
-      ],
-    ),
-  );
-}
+      ),
+    );
+  }
+
   Widget _buildQuickActions() {
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -626,87 +628,274 @@ Widget _buildHeader() {
       ),
     );
   }
-Widget _buildAdvancedAnalysis() {
-  return Padding(
-    padding: const EdgeInsets.all(20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Gelişmiş Analizler',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 16),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
+
+  Widget _buildAdvancedAnalysis() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              _buildAnalysisCard(
-                'İlerleme Raporu',
-                'Zaman içindeki gelişimi görüntüle',
-                Icons.trending_up,
-                const Color(0xFF4DB6AC),
-                _navigateToIlerlemeRaporu,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.analytics, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
-              _buildAnalysisCard(
-                'Test Karşılaştırma',
-                'Farklı testleri karşılaştır',
-                Icons.compare_arrows,
-                const Color(0xFF9575CD),
-                _navigateToTestKarsilastirma,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              _buildAnalysisCard(
-                'Performans Analizi',
-                'İstatistiksel performans değerlendirmesi',
-                Icons.analytics,
-                const Color(0xFF42A5F5),
-                _navigateToPerformanceAnalysis,
-              ),
-              const SizedBox(width: 12),
-              _buildAnalysisCard(
-                'Dikey Profil',
-                'Sıçrama performansı analizi',
-                Icons.show_chart,
-                const Color(0xFF64B5F6),
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DikeyProfilScreen()),
+              const Text(
+                'Gelişmiş Analizler',
+                style: TextStyle(
+                  fontSize: 22, 
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1565C0),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
+          const SizedBox(height: 8),
+          Text(
+            'Performans profilleri ve detaylı analizler',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // İlk satır - 2 kart
+          Row(
             children: [
-              _buildAnalysisCard(
-                'Yatay Profil',
-                'Sprint performansı analizi',
-                Icons.swap_horiz,
-                const Color(0xFFE57373),
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const YatayProfilScreen()),
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'İlerleme Raporu',
+                  'Zaman içindeki gelişimi izleyin',
+                  Icons.trending_up,
+                  const LinearGradient(colors: [Color(0xFF4DB6AC), Color(0xFF26A69A)]),
+                  _navigateToIlerlemeRaporu,
+                  'Performans Geçmişi',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'Test Karşılaştırma',
+                  'Farklı testleri karşılaştırın',
+                  Icons.compare_arrows,
+                  const LinearGradient(colors: [Color(0xFF9575CD), Color(0xFF7E57C2)]),
+                  _navigateToTestKarsilastirma,
+                  'Veri Karşılaştırması',
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          
+          // İkinci satır - 2 kart
+          Row(
+            children: [
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'Performans Analizi',
+                  'İstatistiksel değerlendirme',
+                  Icons.analytics,
+                  const LinearGradient(colors: [Color(0xFF42A5F5), Color(0xFF2196F3)]),
+                  _navigateToPerformanceAnalysis,
+                  'İstatistiksel',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'Dikey Kuvvet-Hız',
+                  'Sıçrama performans profili',
+                  Icons.show_chart,
+                  const LinearGradient(colors: [Color(0xFF66BB6A), Color(0xFF4CAF50)]),
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DikeyProfilScreen()),
+                  ),
+                  'Sıçrama Profili',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Üçüncü satır - 2 kart
+          Row(
+            children: [
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'Yatay Kuvvet-Hız',
+                  'Sprint performans profili',
+                  Icons.swap_horiz,
+                  const LinearGradient(colors: [Color(0xFFFF7043), Color(0xFFFF5722)]),
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const YatayProfilScreen()),
+                  ),
+                  'Sprint Profili',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildAdvancedAnalysisCard(
+                  'Yatay Yük-Hız',
+                  'Yük-hız profil analizi',
+                  Icons.fitness_center,
+                  const LinearGradient(colors: [Color(0xFFAB47BC), Color(0xFF9C27B0)]),
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoadVelocityProfileScreen()),
+                  ),
+                  'Load-Velocity',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdvancedAnalysisCard(
+    String title,
+    String subtitle,
+    IconData icon,
+    Gradient gradient,
+    VoidCallback onTap,
+    String category, {
+    bool isNew = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 120, // Yüksekliği azalttık
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(16), // Border radius'u azalttık
+          boxShadow: [
+            BoxShadow(
+              color: gradient.colors.first.withOpacity(0.3),
+              blurRadius: 8, // Blur'u azalttık
+              offset: const Offset(0, 4), // Offset'i azalttık
+            ),
+          ],
         ),
-      ],
-    ),
-  );
-}
+        child: Stack(
+          children: [
+            // Background pattern - boyutları azalttık
+            Positioned(
+              top: -15,
+              right: -15,
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.1),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -20,
+              left: -20,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.05),
+                ),
+              ),
+            ),
+            
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(12), // Padding'i azalttık
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6), // Padding'i azalttık
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(icon, color: Colors.white, size: 18), // Icon boyutunu azalttık
+                      ),
+                      if (isNew)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // Padding'i azalttık
+                          decoration: BoxDecoration(
+                            color: Colors.orange,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'YENİ',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 8, // Font boyutunu azalttık
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6), // Boşluğu azalttık
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // Padding'i azalttık
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      category,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8, // Font boyutunu azalttık
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13, // Font boyutunu azalttık
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2), // Boşluğu azalttık
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 10, // Font boyutunu azalttık
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildRecentAthletes() {
     return Padding(
@@ -769,8 +958,6 @@ Widget _buildAdvancedAnalysis() {
       ),
     );
   }
-
-  
 
   Widget _buildTestCard(
     String title,
@@ -838,8 +1025,6 @@ Widget _buildAdvancedAnalysis() {
     );
   }
 
-
-
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -877,420 +1062,349 @@ Widget _buildAdvancedAnalysis() {
     );
   }
 
-
-  Widget _buildAnalysisCard(
-  String title,
-  String subtitle,
-  IconData icon,
-  Color color,
-  VoidCallback onTap,
-) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      height: 120, // Sabit yükseklik ekledim
-      padding: const EdgeInsets.all(12), // Padding'i azalttım
+  Widget _buildAthleteCard(Sporcu sporcu) {
+    final isSelected = _selectedSporcuId == sporcu.id;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(
+          color: isSelected ? const Color(0xFF1E88E5) : Colors.transparent,
+          width: 2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween, // Bu satırı ekledim
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6), // Padding'i azalttım
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 20), // Icon boyutunu azalttım
-          ),
-          const SizedBox(height: 8),
-          Expanded( // Text kısmını Expanded ile sardım
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13, // Font boyutunu azalttım
-                  ),
-                  maxLines: 2, // Maksimum 2 satır
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Expanded(
-                  child: Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11, // Font boyutunu azalttım
-                      color: Colors.grey[600],
-                    ),
-                    maxLines: 3, // Maksimum 3 satır
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+      child: ListTile(
+        onTap: () {
+          setState(() => _selectedSporcuId = sporcu.id);
+          _showSuccessSnackBar('${sporcu.ad} ${sporcu.soyad} seçildi');
+        },
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: CircleAvatar(
+          radius: 20,
+          backgroundColor: isSelected ? const Color(0xFF1E88E5) : const Color(0xFFE3F2FD),
+          child: Text(
+            '${sporcu.ad[0]}${sporcu.soyad[0]}'.toUpperCase(),
+            style: TextStyle(
+              color: isSelected ? Colors.white : const Color(0xFF1E88E5),
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
             ),
           ),
-        ],
-      ),
-    ),
-  );
-}
-
- Widget _buildAthleteCard(Sporcu sporcu) {
-  final isSelected = _selectedSporcuId == sporcu.id;
-  
-  return Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(
-        color: isSelected ? const Color(0xFF1E88E5) : Colors.transparent,
-        width: 2,
-      ),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
         ),
-      ],
-    ),
-    child: ListTile(
-      onTap: () {
-        setState(() => _selectedSporcuId = sporcu.id);
-        _showSuccessSnackBar('${sporcu.ad} ${sporcu.soyad} seçildi');
-      },
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Padding azaltıldı
-      leading: CircleAvatar(
-        radius: 20, // Boyut azaltıldı
-        backgroundColor: isSelected ? const Color(0xFF1E88E5) : const Color(0xFFE3F2FD),
-        child: Text(
-          '${sporcu.ad[0]}${sporcu.soyad[0]}'.toUpperCase(),
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF1E88E5),
-            fontWeight: FontWeight.bold,
-            fontSize: 14, // Font boyutu azaltıldı
-          ),
+        title: Text(
+          '${sporcu.ad} ${sporcu.soyad}',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
         ),
-      ),
-      title: Text(
-        '${sporcu.ad} ${sporcu.soyad}',
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), // Font boyutu azaltıldı
-        overflow: TextOverflow.ellipsis, // Overflow koruması
-        maxLines: 1,
-      ),
-      subtitle: Text(
-        'Yaş: ${sporcu.yas} • ${sporcu.cinsiyet}',
-        style: const TextStyle(fontSize: 13), // Font boyutu azaltıldı
-        overflow: TextOverflow.ellipsis, // Overflow koruması
-        maxLines: 1,
-      ),
-      trailing: SizedBox(
-        width: 24, // Sabit genişlik
-        child: isSelected
-            ? Container(
-                padding: const EdgeInsets.all(4), // Padding azaltıldı
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1E88E5),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check, color: Colors.white, size: 14), // Icon boyutu azaltıldı
-              )
-            : Icon(Icons.chevron_right, color: Colors.grey[400], size: 20), // Icon boyutu azaltıldı
-      ),
-    ),
-  );
-}
- Widget _buildBottomNavigation() {
-   return Container(
-     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-     decoration: BoxDecoration(
-       color: Colors.white,
-       boxShadow: [
-         BoxShadow(
-           color: Colors.black.withOpacity(0.05),
-           blurRadius: 10,
-           offset: const Offset(0, -5),
-         ),
-       ],
-     ),
-     child: SafeArea(
-       child: Row(
-         mainAxisAlignment: MainAxisAlignment.spaceAround,
-         children: [
-           _buildNavButton(
-             'Sporcu Ekle',
-             Icons.person_add,
-             () => Navigator.push(
-               context,
-               MaterialPageRoute(builder: (_) => const SporcuKayitScreen()),
-             ).then((_) => _loadData()),
-           ),
-           _buildNavButton(
-             'Analiz',
-             Icons.analytics,
-             _navigateToAnalysisScreen,
-           ),
-           _buildNavButton(
-             'Export',
-             Icons.cloud_download,
-             _exportData,
-           ),
-           _buildNavButton(
-             'Ayarlar',
-             Icons.settings,
-             () => _showSettingsDialog(),
-           ),
-         ],
-       ),
-     ),
-   );
- }
-
- Widget _buildNavButton(String label, IconData icon, VoidCallback onTap) {
-   return InkWell(
-     onTap: onTap,
-     borderRadius: BorderRadius.circular(12),
-     child: Container(
-       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-       child: Column(
-         mainAxisSize: MainAxisSize.min,
-         children: [
-           Container(
-             padding: const EdgeInsets.all(8),
-             decoration: BoxDecoration(
-               color: const Color(0xFF1565C0).withOpacity(0.1),
-               borderRadius: BorderRadius.circular(8),
-             ),
-             child: Icon(icon, color: const Color(0xFF1565C0), size: 20),
-           ),
-           const SizedBox(height: 4),
-           Text(
-             label,
-             style: const TextStyle(
-               fontSize: 11,
-               fontWeight: FontWeight.w600,
-               color: Color(0xFF1565C0),
-             ),
-             textAlign: TextAlign.center,
-           ),
-         ],
-       ),
-     ),
-   );
- }
-
-
-void _navigateToPerformanceAnalysis() {
-  if (_selectedSporcuId == null) {
-    _showSporcuGerekmesiDialog('Performans Analizi');
-  } else {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PerformanceAnalysisScreen(
-          sporcuId: _selectedSporcuId,
+        subtitle: Text(
+          'Yaş: ${sporcu.yas} • ${sporcu.cinsiyet}',
+          style: const TextStyle(fontSize: 13),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
+        trailing: SizedBox(
+          width: 24,
+          child: isSelected
+              ? Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1E88E5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 14),
+                )
+              : Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
         ),
       ),
     );
   }
-}
 
- void _showSettingsDialog() {
-   showDialog(
-     context: context,
-     builder: (_) => AlertDialog(
-       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-       title: const Row(
-         children: [
-           Icon(Icons.settings, color: Color(0xFF1565C0)),
-           SizedBox(width: 8),
-           Text('Ayarlar'),
-         ],
-       ),
-       content: Column(
-         mainAxisSize: MainAxisSize.min,
-         children: [
-           ListTile(
-             leading: const Icon(Icons.delete_sweep, color: Colors.red),
-             title: const Text('Veritabanını Temizle'),
-             subtitle: const Text('Tüm veriler silinecek'),
-             onTap: () => _showClearDatabaseDialog(),
-           ),
-           ListTile(
-             leading: const Icon(Icons.backup, color: Color(0xFF1565C0)),
-             title: const Text('Test Verisi Oluştur'),
-             subtitle: const Text('Örnek veriler ekle'),
-             onTap: () => _populateTestData(),
-           ),
-           ListTile(
-             leading: const Icon(Icons.info, color: Color(0xFF1565C0)),
-             title: const Text('Uygulama Hakkında'),
-             onTap: () => _showAboutDialog(),
-           ),
-         ],
-       ),
-       actions: [
-         TextButton(
-           onPressed: () => Navigator.pop(context),
-           child: const Text('Kapat'),
-         ),
-       ],
-     ),
-   );
- }
+  Widget _buildBottomNavigation() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildNavButton(
+              'Sporcu Ekle',
+              Icons.person_add,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SporcuKayitScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildNavButton(
+              'Analiz',
+              Icons.analytics,
+              _navigateToAnalysisScreen,
+            ),
+            _buildNavButton(
+              'Export',
+              Icons.cloud_download,
+              _exportData,
+            ),
+            _buildNavButton(
+              'Ayarlar',
+              Icons.settings,
+              () => _showSettingsDialog(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
- void _showClearDatabaseDialog() {
-   Navigator.pop(context); // Ayarlar dialog'unu kapat
-   
-   showDialog(
-     context: context,
-     builder: (_) => AlertDialog(
-       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-       title: const Row(
-         children: [
-           Icon(Icons.warning, color: Colors.red),
-           SizedBox(width: 8),
-           Text('Dikkat!'),
-         ],
-       ),
-       content: const Text(
-         'Bu işlem tüm sporcu verilerini ve ölçümleri kalıcı olarak silecektir. '
-         'Bu işlem geri alınamaz. Devam etmek istediğinizden emin misiniz?'
-       ),
-       actions: [
-         TextButton(
-           onPressed: () => Navigator.pop(context),
-           child: const Text('İptal'),
-         ),
-         ElevatedButton(
-           onPressed: () async {
-             Navigator.pop(context);
-             try {
-               await DatabaseService().deleteDatabaseFile();
-               setState(() {
-                 _athletes.clear();
-                 _selectedSporcuId = null;
-                 _toplamSporcu = 0;
-               });
-               _showSuccessSnackBar('Veritabanı başarıyla temizlendi');
-             } catch (e) {
-               _showErrorSnackBar('Veritabanı temizlenirken hata: $e');
-             }
-           },
-           style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-           child: const Text('Sil', style: TextStyle(color: Colors.white)),
-         ),
-       ],
-     ),
-   );
- }
+  Widget _buildNavButton(String label, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1565C0).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: const Color(0xFF1565C0), size: 20),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1565C0),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
- void _populateTestData() {
-   Navigator.pop(context); // Ayarlar dialog'unu kapat
-   
-   showDialog(
-     context: context,
-     builder: (_) => AlertDialog(
-       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-       title: const Row(
-         children: [
-           Icon(Icons.backup, color: Color(0xFF1565C0)),
-           SizedBox(width: 8),
-           Text('Test Verisi Oluştur'),
-         ],
-       ),
-       content: const Text(
-         'Örnek sporcu verileri ve ölçümler oluşturulacak. '
-         'Bu işlem birkaç dakika sürebilir.'
-       ),
-       actions: [
-         TextButton(
-           onPressed: () => Navigator.pop(context),
-           child: const Text('İptal'),
-         ),
-         ElevatedButton(
-           onPressed: () async {
-             Navigator.pop(context);
-             
-             // Loading dialog göster
-             showDialog(
-               context: context,
-               barrierDismissible: false,
-               builder: (_) => const AlertDialog(
-                 content: Row(
-                   children: [
-                     CircularProgressIndicator(),
-                     SizedBox(width: 16),
-                     Text('Test verileri oluşturuluyor...'),
-                   ],
-                 ),
-               ),
-             );
-             
-             try {
-               await DatabaseService().populateMockData();
-               Navigator.pop(context); // Loading dialog'unu kapat
-               await _loadData(); // Verileri yeniden yükle
-               _showSuccessSnackBar('Test verileri başarıyla oluşturuldu');
-             } catch (e) {
-               Navigator.pop(context); // Loading dialog'unu kapat
-               _showErrorSnackBar('Test verileri oluşturulurken hata: $e');
-             }
-           },
-           style: ElevatedButton.styleFrom(
-             backgroundColor: const Color(0xFF1565C0),
-           ),
-           child: const Text('Oluştur', style: TextStyle(color: Colors.white)),
-         ),
-       ],
-     ),
-   );
- }
+  void _navigateToPerformanceAnalysis() {
+    if (_selectedSporcuId == null) {
+      _showSporcuGerekmesiDialog('Performans Analizi');
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PerformanceAnalysisScreen(
+            sporcuId: _selectedSporcuId,
+          ),
+        ),
+      );
+    }
+  }
 
- void _showAboutDialog() {
-   Navigator.pop(context); // Ayarlar dialog'unu kapat
-   
-   showAboutDialog(
-     context: context,
-     applicationName: 'İzLab Sports',
-     applicationVersion: '1.0.0',
-     applicationIcon: Container(
-       width: 48,
-       height: 48,
-       decoration: BoxDecoration(
-         color: const Color(0xFF1565C0),
-         borderRadius: BorderRadius.circular(12),
-       ),
-       child: const Icon(Icons.sports, color: Colors.white, size: 24),
-     ),
-     children: [
-       const Text(
-         'İzLab Sports - izSel Hibrit\n\n'
-         'Sporcuların performans analizini yapmak için geliştirilmiş '
-         'profesyonel bir uygulama.\n\n'
-         'Özellikler:\n'
-         '• Sprint ve sıçrama testleri\n'
-         '• Detaylı performans analizi\n'
-         '• İlerleme takibi\n'
-         '• Test karşılaştırması\n'
-         '• Kuvvet-hız profil analizi',
-       ),
-     ],
-   );
- }
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.settings, color: Color(0xFF1565C0)),
+            SizedBox(width: 8),
+            Text('Ayarlar'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_sweep, color: Colors.red),
+              title: const Text('Veritabanını Temizle'),
+              subtitle: const Text('Tüm veriler silinecek'),
+              onTap: () => _showClearDatabaseDialog(),
+            ),
+            ListTile(
+              leading: const Icon(Icons.backup, color: Color(0xFF1565C0)),
+              title: const Text('Test Verisi Oluştur'),
+              subtitle: const Text('Örnek veriler ekle'),
+              onTap: () => _populateTestData(),
+            ),
+            ListTile(
+              leading: const Icon(Icons.info, color: Color(0xFF1565C0)),
+              title: const Text('Uygulama Hakkında'),
+              onTap: () => _showAboutDialog(),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showClearDatabaseDialog() {
+    Navigator.pop(context); // Ayarlar dialog'unu kapat
+    
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Dikkat!'),
+          ],
+        ),
+        content: const Text(
+          'Bu işlem tüm sporcu verilerini ve ölçümleri kalıcı olarak silecektir. '
+          'Bu işlem geri alınamaz. Devam etmek istediğinizden emin misiniz?'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await DatabaseService().deleteDatabaseFile();
+                setState(() {
+                  _athletes.clear();
+                  _selectedSporcuId = null;
+                  _toplamSporcu = 0;
+                });
+                _showSuccessSnackBar('Veritabanı başarıyla temizlendi');
+              } catch (e) {
+                _showErrorSnackBar('Veritabanı temizlenirken hata: $e');
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Sil', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _populateTestData() {
+    Navigator.pop(context); // Ayarlar dialog'unu kapat
+    
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.backup, color: Color(0xFF1565C0)),
+            SizedBox(width: 8),
+            Text('Test Verisi Oluştur'),
+          ],
+        ),
+        content: const Text(
+          'Örnek sporcu verileri ve ölçümler oluşturulacak. '
+          'Bu işlem birkaç dakika sürebilir.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              
+              // Loading dialog göster
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Text('Test verileri oluşturuluyor...'),
+                    ],
+                  ),
+                ),
+              );
+              
+              try {
+                await DatabaseService().populateMockData();
+                Navigator.pop(context); // Loading dialog'unu kapat
+                await _loadData(); // Verileri yeniden yükle
+                _showSuccessSnackBar('Test verileri başarıyla oluşturuldu');
+              } catch (e) {
+                Navigator.pop(context); // Loading dialog'unu kapat
+                _showErrorSnackBar('Test verileri oluşturulurken hata: $e');
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1565C0),
+            ),
+            child: const Text('Oluştur', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog() {
+    Navigator.pop(context); // Ayarlar dialog'unu kapat
+    
+    showAboutDialog(
+      context: context,
+      applicationName: 'İzLab Sports',
+      applicationVersion: '1.0.0',
+      applicationIcon: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1565C0),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.sports, color: Colors.white, size: 24),
+      ),
+      children: [
+        const Text(
+          'İzLab Sports - izSel Hibrit\n\n'
+          'Sporcuların performans analizini yapmak için geliştirilmiş '
+          'profesyonel bir uygulama.\n\n'
+          'Özellikler:\n'
+          '• Sprint ve sıçrama testleri\n'
+          '• Detaylı performans analizi\n'
+          '• İlerleme takibi\n'
+          '• Test karşılaştırması\n'
+          '• Kuvvet-hız profil analizi\n'
+          '• Load-velocity profil analizi',
+        ),
+      ],
+    );
+  }
 }

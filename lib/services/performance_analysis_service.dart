@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart';
+// services/performance_analysis_service.dart
+
 import 'dart:math' as math;
 import '../models/olcum_model.dart';
 import '../utils/statistics_helper.dart';
@@ -7,262 +8,6 @@ import 'database_service.dart';
 class PerformanceAnalysisService {
   final DatabaseService _databaseService = DatabaseService();
   
-  /// Bir sporcunun belirli bir ölçüm türü ve değeri için zaman içindeki performans analizini yapar
-  Future<Map<String, dynamic>> analyzePerformanceOverTime({
-    required int sporcuId,
-    required String olcumTuru,
-    required String degerTuru,
-    String? baslangicTarihi,
-    String? bitisTarihi,
-  }) async {
-    try {
-      // Sporcu ölçümlerini al
-      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-      
-      // Ölçüm türüne göre filtrele
-      final filteredOlcumler = olcumler.where((o) => 
-        o.olcumTuru.toUpperCase() == olcumTuru.toUpperCase()).toList();
-      
-      if (filteredOlcumler.isEmpty) {
-        return {'error': 'Bu ölçüm türünde veri bulunamadı'};
-      }
-      
-      // Ölçümleri tarihe göre sırala (eskiden yeniye)
-      filteredOlcumler.sort((a, b) => a.olcumTarihi.compareTo(b.olcumTarihi));
-      
-      // Zaman aralığına göre filtrele
-      if (baslangicTarihi != null) {
-        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(baslangicTarihi) < 0);
-      }
-      if (bitisTarihi != null) {
-        filteredOlcumler.removeWhere((o) => o.olcumTarihi.compareTo(bitisTarihi) > 0);
-      }
-      
-      if (filteredOlcumler.isEmpty) {
-        return {'error': 'Belirtilen tarih aralığında veri bulunamadı'};
-      }
-      
-      // İstenen değer türüne göre değerleri topla
-      List<double> performanceValues = [];
-      List<String> dates = [];
-      
-      for (var olcum in filteredOlcumler) {
-        final deger = olcum.degerler.firstWhere(
-          (d) => d.degerTuru.toUpperCase() == degerTuru.toUpperCase(),
-          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
-        );
-        
-        if (deger.deger != 0) {
-          performanceValues.add(deger.deger);
-          dates.add(olcum.olcumTarihi);
-        }
-      }
-      
-      if (performanceValues.isEmpty) {
-        return {'error': 'Bu değer türünde veri bulunamadı'};
-      }
-      
-      // Minimum, maksimum ve ilgili tarihler
-      final minValue = performanceValues.reduce((a, b) => a < b ? a : b);
-      final maxValue = performanceValues.reduce((a, b) => a > b ? a : b);
-      final minIndex = performanceValues.indexOf(minValue);
-      final maxIndex = performanceValues.indexOf(maxValue);
-      
-      // İstatistiksel analizler
-      final mean = performanceValues.reduce((a, b) => a + b) / performanceValues.length;
-      final stdDev = StatisticsHelper.calculateStandardDeviation(performanceValues);
-// Sıfıra bölme koruması
-      
-      // Tipiklik indeksi (tutarlılık ölçüsü)
-      final typicalityIndex = StatisticsHelper.calculateTypicalityIndex(performanceValues);
-      
-      // Trend analizi
-      final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(performanceValues);
-      
-      // Son durumda performans momentumu (son 3 ölçüm)
-      double momentum = 0;
-      if (performanceValues.length >= 6) {
-        momentum = StatisticsHelper.calculateMomentum(performanceValues);
-      }
-      
-      // SWC (En Küçük Değerli Değişim) hesaplaması
-      final swc = StatisticsHelper.calculateSWC(performanceValues);
-      
-      // Başlangıç-bitiş değişimi
-      final startValue = performanceValues.first;
-      final endValue = performanceValues.last;
-      final totalChange = endValue - startValue;
-      final percentChange = startValue != 0 ? (totalChange / startValue) * 100 : 0; // Sıfıra bölme koruması
-      
-      final analysis = {
-        'performanceValues': performanceValues,
-        'dates': dates,
-        'mean': mean,
-        'stdDev': stdDev,
-        'cvPercentage': stdDev > 0 ? (stdDev / mean) * 100 : 0,
-        'typicalityIndex': typicalityIndex,
-        'trend': trendAnalysis['trend'] ?? 0.0,
-        'stability': trendAnalysis['stability'] ?? 0.0,
-        'momentum': momentum,
-        'swc': swc,
-        'minValue': minValue,
-        'maxValue': maxValue,
-        'minDate': dates[minIndex],
-        'maxDate': dates[maxIndex],
-        'startValue': startValue,
-        'endValue': endValue,
-        'totalChange': totalChange,
-        'percentChange': percentChange,
-        'firstDate': dates.first,
-        'lastDate': dates.last,
-        'numberOfSamples': performanceValues.length,
-      };
-      
-      // Analiz sonuçlarını veritabanına kaydet
-      await _databaseService.savePerformansAnaliz(
-        sporcuId: sporcuId,
-        olcumTuru: olcumTuru,
-        degerTuru: degerTuru,
-        baslangicTarihi: dates.first,
-        bitisTarihi: dates.last,
-        ortalama: mean,
-        stdDev: stdDev,
-        cvYuzde: stdDev > 0 ? (stdDev / mean) * 100 : 0,
-        trendSlope: (trendAnalysis['trend'] ?? 0.0).toDouble(),
-        momentum: momentum,
-        typicalityIndex: typicalityIndex,
-      );
-      
-      return analysis;
-    } catch (e) {
-      debugPrint('Performans analizi hatası: $e');
-      return {'error': 'Analiz sırasında bir hata oluştu: $e'};
-    }
-  }
-  
-  /// İki ölçüm arasındaki değişimin anlamlı olup olmadığını değerlendirir
-  Future<Map<String, dynamic>> evaluatePerformanceChange({
-    required double preValue,
-    required double postValue,
-    required String olcumTuru,
-    required String degerTuru,
-  }) async {
-    try {
-      // Test güvenilirlik verilerini al
-      final guvenilirlik = await _databaseService.getTestGuvenilirlik(
-        olcumTuru: olcumTuru,
-        degerTuru: degerTuru,
-      );
-      
-      // Değişim miktarı
-      final change = postValue - preValue;
-      final percentChange = preValue != 0 ? (change / preValue) * 100 : 0; // Sıfıra bölme koruması
-      
-      // Sonuç
-      Map<String, dynamic> result = {
-        'preValue': preValue,
-        'postValue': postValue,
-        'absoluteChange': change,
-        'percentChange': percentChange,
-      };
-      
-      // Eğer güvenilirlik verileri mevcutsa anlamlılık değerlendirmesi yap
-      if (guvenilirlik != null) {
-        final sem = guvenilirlik['TestRetestSEM'] as double?;
-        final mdc95 = guvenilirlik['MDC95'] as double?;
-        final swc = guvenilirlik['SWC'] as double?;
-        
-        if (sem != null && sem > 0) {
-          final rci = StatisticsHelper.calculateRCI(preValue, postValue, sem);
-          result['rci'] = rci;
-          result['isReliableChange'] = rci.abs() > 1.96; // %95 güven aralığı
-        }
-        
-        if (mdc95 != null) {
-          result['mdc95'] = mdc95;
-          result['exceedsMDC'] = change.abs() > mdc95;
-        }
-        
-        if (swc != null) {
-          result['swc'] = swc;
-          result['exceedsSWC'] = change.abs() > swc;
-        }
-        
-        // Genel değerlendirme
-        result['isSignificantChange'] = 
-          (result['exceedsMDC'] as bool? ?? false) || 
-          (result['isReliableChange'] as bool? ?? false);
-        
-        result['isPracticallyMeaningful'] = 
-          (result['exceedsSWC'] as bool? ?? false);
-      }
-      
-      return result;
-    } catch (e) {
-      debugPrint('Performans değişimi değerlendirme hatası: $e');
-      return {'error': 'Değerlendirme sırasında bir hata oluştu: $e'};
-    }
-  }
-  
-  /// Test güvenilirlik verilerini günceller (test-retest verileri ile)
-  Future<bool> updateTestReliabilityData({
-    required String olcumTuru,
-    required String degerTuru,
-    required List<double> testRetestData,
-    double confidenceLevel = 0.95,
-    String swcMethod = 'cohen',
-    double swcCoefficient = 0.2,
-  }) async {
-    try {
-      if (testRetestData.length < 4) {
-        return false; // Yetersiz veri
-      }
-      
-      // MDC hesapla
-      final mdc = StatisticsHelper.calculateMDC(
-        testRetestData,
-        confidenceLevel: confidenceLevel
-      );
-      
-      // Test-retest farkları
-      List<double> differences = [];
-      for (int i = 0; i < testRetestData.length; i += 2) {
-        differences.add(testRetestData[i] - testRetestData[i + 1]);
-      }
-      
-      // SEM hesapla
-      final stdDev = StatisticsHelper.calculateStandardDeviation(differences);
-      final sem = stdDev / math.sqrt(2);
-      
-      // SWC hesapla
-      final List<double> uniqueValues = [];
-      for (int i = 0; i < testRetestData.length; i += 2) {
-        uniqueValues.add(testRetestData[i]);
-      }
-      
-      final swc = StatisticsHelper.calculateSWC(
-        uniqueValues,
-        method: swcMethod,
-        coefficient: swcCoefficient,
-      );
-      
-      // Veritabanına kaydet
-      await _databaseService.saveTestGuvenilirlik(
-        olcumTuru: olcumTuru,
-        degerTuru: degerTuru,
-        testRetestSEM: sem,
-        mdc95: mdc,
-        swc: swc,
-      );
-      
-      return true;
-    } catch (e) {
-      debugPrint('Test güvenilirlik verisi güncellenirken hata: $e');
-      return false;
-    }
-  }
-  
-  /// Sporcunun dönemsel performans özeti
   Future<Map<String, dynamic>> getPerformanceSummary({
     required int sporcuId,
     required String olcumTuru,
@@ -270,42 +15,479 @@ class PerformanceAnalysisService {
     int lastNDays = 90,
   }) async {
     try {
-      // Son analizi veritabanından çekmeyi dene
-      final cachedAnalysis = await _databaseService.getPerformansAnaliz(
+      // Temel performans verilerini al
+      final performances = await _getPerformanceData(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
+        lastNDays: lastNDays,
       );
       
-      // Eğer önbellekteki analiz çok eskiyse (>7 gün) yeniden hesapla
-      if (cachedAnalysis != null) {
-        try {
-          final lastAnalysisDate = DateTime.parse(cachedAnalysis['SonAnalizTarihi'] as String);
-          final now = DateTime.now();
-          final difference = now.difference(lastAnalysisDate).inDays;
-          
-          if (difference <= 7) {
-            // Önbelleği kullan
-            return cachedAnalysis;
+      if (performances.isEmpty) {
+        return {'error': 'Yeterli veri bulunamadı'};
+      }
+      
+      final values = performances.map((p) => p['value'] as double).toList();
+      final dates = performances.map((p) => p['date'] as String).toList();
+      
+      // Temel istatistikler
+      final mean = StatisticsHelper.calculateMean(values);
+      final stdDev = StatisticsHelper.calculateStandardDeviation(values);
+      final cv = StatisticsHelper.calculateCV(values);
+      final min = values.reduce(math.min);
+      final max = values.reduce(math.max);
+      final range = max - min;
+      final median = StatisticsHelper.calculateMedian(values);
+      
+      // Gelişmiş analizler
+      final typicalityIndex = StatisticsHelper.calculateTypicalityIndex(values);
+      final momentum = StatisticsHelper.calculateMomentum(values);
+      final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(values);
+      final zScores = StatisticsHelper.calculateZScores(values);
+      
+      // SWC ve MDC hesaplamaları - Düzeltilmiş metodları kullan
+      final swc = StatisticsHelper.calculateSWC(betweenAthleteData: values);
+      
+      // MDC için test-retest verileri gerekli, eğer yoksa 0 döndür
+      double mdc = 0.0;
+      if (values.length >= 4) {
+        // Basit yaklaşım: ardışık değerleri test-retest çifti olarak kullan
+        List<double> testRetestPairs = [];
+        for (int i = 0; i < values.length - 1; i += 2) {
+          if (i + 1 < values.length) {
+            testRetestPairs.add(values[i]);
+            testRetestPairs.add(values[i + 1]);
           }
-        } catch (e) {
-          debugPrint('Tarih parse hatası: $e');
-          // Tarih parse edilemezse yeniden hesapla
+        }
+        if (testRetestPairs.length >= 4) {
+          mdc = StatisticsHelper.calculateMDC(testRetestPairs);
         }
       }
       
-      // Analizi yeniden hesapla
-      final baslangicTarihi = DateTime.now().subtract(Duration(days: lastNDays)).toIso8601String();
+      // Test güvenilirlik verilerini al (eğer veritabanında varsa)
+      Map<String, dynamic> reliability = {};
+      try {
+        reliability = await _getTestReliability(
+          olcumTuru: olcumTuru,
+          degerTuru: degerTuru,
+        );
+      } catch (e) {
+        reliability = {'error': 'Güvenilirlik verisi bulunamadı'};
+      }
       
-      return await analyzePerformanceOverTime(
+      // Performans sınıflandırması
+      final performanceClass = StatisticsHelper.classifyPerformance(values.last, values);
+      
+      // Son performans değişimi
+      double recentChange = 0;
+      double recentChangePercent = 0;
+      if (values.length >= 2) {
+        recentChange = values.last - values.first;
+        recentChangePercent = values.first != 0 ? (recentChange / values.first) * 100 : 0;
+      }
+      
+      // Outlier analizi
+      final outliers = StatisticsHelper.detectOutliers(values);
+      
+      // Çeyreklik değerler
+      final q25 = StatisticsHelper.calculatePercentile(values, 25);
+      final q75 = StatisticsHelper.calculatePercentile(values, 75);
+      final iqr = q75 - q25;
+      
+      // Son 3 değerin ortalaması vs önceki 3 değerin ortalaması
+      String performanceTrend = 'Kararlı';
+      if (values.length >= 6) {
+        final recent3 = values.sublist(values.length - 3);
+        final previous3 = values.sublist(values.length - 6, values.length - 3);
+        final recentMean = StatisticsHelper.calculateMean(recent3);
+        final previousMean = StatisticsHelper.calculateMean(previous3);
+        final changePercent = previousMean != 0 ? ((recentMean - previousMean) / previousMean) * 100 : 0;
+        
+        if (changePercent > 2) {
+          performanceTrend = 'Yükseliş';
+        } else if (changePercent < -2) {
+          performanceTrend = 'Düşüş';
+        }
+      }
+      
+      return {
+        // Temel istatistikler
+        'mean': mean,
+        'standardDeviation': stdDev,
+        'coefficientOfVariation': cv,
+        'minimum': min,
+        'maximum': max,
+        'range': range,
+        'median': median,
+        'count': values.length,
+        'q25': q25,
+        'q75': q75,
+        'iqr': iqr,
+        
+        // Gelişmiş analizler
+        'typicalityIndex': typicalityIndex,
+        'momentum': momentum,
+        'trendSlope': trendAnalysis['trend'],
+        'trendStability': trendAnalysis['stability'],
+        'trendRSquared': trendAnalysis['r_squared'],
+        'trendStrength': trendAnalysis['trend_strength'],
+        'zScores': zScores,
+        
+        // Güvenilirlik metrikleri
+        'swc': swc,
+        'mdc': mdc,
+        'reliability': reliability,
+        
+        // Performans değerlendirme
+        'performanceClass': performanceClass,
+        'performanceTrend': performanceTrend,
+        'recentChange': recentChange,
+        'recentChangePercent': recentChangePercent,
+        'outliers': outliers,
+        'outliersCount': outliers.length,
+        
+        // Ham veriler
+        'performanceValues': values,
+        'dates': dates,
+        'analysisDate': DateTime.now().toIso8601String(),
+      };
+    } catch (e) {
+      return {'error': 'Analiz sırasında hata: $e'};
+    }
+  }
+  
+  Future<List<Map<String, dynamic>>> _getPerformanceData({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+    required int lastNDays,
+  }) async {
+    final cutoffDate = DateTime.now().subtract(Duration(days: lastNDays));
+    final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+    
+    final filteredOlcumler = olcumler.where((olcum) {
+      try {
+        final olcumDate = DateTime.parse(olcum.olcumTarihi);
+        return olcumDate.isAfter(cutoffDate) && 
+               olcum.olcumTuru.toLowerCase() == olcumTuru.toLowerCase();
+      } catch (e) {
+        return false;
+      }
+    }).toList();
+    
+    final performances = <Map<String, dynamic>>[];
+    
+    for (final olcum in filteredOlcumler) {
+      // Değer türü eşleştirmesi (case-insensitive)
+      final deger = olcum.degerler.firstWhere(
+        (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+        orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+      );
+      
+      if (deger.deger > 0) {
+        performances.add({
+          'value': deger.deger,
+          'date': olcum.olcumTarihi,
+          'testId': olcum.testId,
+          'olcumSirasi': olcum.olcumSirasi,
+        });
+      }
+    }
+    
+    // Tarihe göre sırala
+    performances.sort((a, b) => a['date'].compareTo(b['date']));
+    
+    return performances;
+  }
+  
+  /// Test güvenilirlik verilerini al (basit implementasyon)
+  Future<Map<String, dynamic>> _getTestReliability({
+    required String olcumTuru,
+    required String degerTuru,
+  }) async {
+    // Bu metodun gerçek implementasyonu veritabanına bağlı
+    // Şimdilik varsayılan değerler döndürüyoruz
+    
+    Map<String, double> defaultReliability = {
+      'CMJ': 0.95,
+      'SJ': 0.93,
+      'DJ': 0.88,
+      'RJ': 0.82,
+      'SPRINT': 0.98,
+    };
+    
+    final reliability = defaultReliability[olcumTuru.toUpperCase()] ?? 0.90;
+    
+    return {
+      'test_retest_reliability': reliability,
+      'icc': reliability,
+      'cv_percent': (1 - reliability) * 10, // Basit CV tahmini
+      'source': 'Varsayılan değer',
+    };
+  }
+  
+  /// Detaylı performans raporu
+  Future<Map<String, dynamic>> getDetailedPerformanceReport({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+    int lastNDays = 90,
+  }) async {
+    
+    final basicSummary = await getPerformanceSummary(
+      sporcuId: sporcuId,
+      olcumTuru: olcumTuru,
+      degerTuru: degerTuru,
+      lastNDays: lastNDays,
+    );
+    
+    if (basicSummary.containsKey('error')) {
+      return basicSummary;
+    }
+    
+    final values = List<double>.from(basicSummary['performanceValues']);
+    final dates = List<String>.from(basicSummary['dates']);
+    
+    // Ek analizler
+    final intraIndividualCV = StatisticsHelper.calculateIntraIndividualCV(values);
+    final percentiles = {
+      '10th': StatisticsHelper.calculatePercentile(values, 10),
+      '25th': StatisticsHelper.calculatePercentile(values, 25),
+      '50th': StatisticsHelper.calculatePercentile(values, 50),
+      '75th': StatisticsHelper.calculatePercentile(values, 75),
+      '90th': StatisticsHelper.calculatePercentile(values, 90),
+      '95th': StatisticsHelper.calculatePercentile(values, 95),
+    };
+    
+    // Moving averages
+    final movingAverage3 = StatisticsHelper.calculateMovingAverage(values, 3);
+    final movingAverage5 = StatisticsHelper.calculateMovingAverage(values, 5);
+    final exponentialMA = StatisticsHelper.calculateExponentialMovingAverage(values, 0.3);
+    
+    // Normalize edilmiş veriler
+    final normalizedData = StatisticsHelper.normalizeData(values);
+    final standardizedData = StatisticsHelper.standardizeData(values);
+    
+    // İlerleme analizi (eğer tarihler mevcut ise)
+    Map<String, dynamic> progressAnalysis = {};
+    if (dates.isNotEmpty) {
+      try {
+        final parsedDates = dates.map((d) => DateTime.parse(d)).toList();
+        progressAnalysis = StatisticsHelper.analyzeAthleteProgress(
+          performanceData: values,
+          testDates: parsedDates,
+          testType: olcumTuru,
+          smallestWorthwhileChange: basicSummary['swc'],
+          minimalDetectableChange: basicSummary['mdc'] > 0 ? basicSummary['mdc'] : null,
+        );
+      } catch (e) {
+        progressAnalysis = {'error': 'Tarih analizi hatası: $e'};
+      }
+    }
+    
+    // RSI analizi (eğer sıçrama testi ise)
+    Map<String, dynamic> rsiAnalysis = {};
+    if (['CMJ', 'SJ', 'DJ', 'RJ'].contains(olcumTuru.toUpperCase())) {
+      rsiAnalysis = await _calculateRSIAnalysis(sporcuId, olcumTuru, lastNDays);
+    }
+    
+    // Sprint analizi (eğer sprint testi ise)
+    Map<String, dynamic> sprintAnalysis = {};
+    if (olcumTuru.toUpperCase() == 'SPRINT') {
+      sprintAnalysis = await _calculateSprintAnalysis(sporcuId, lastNDays);
+    }
+    
+    return {
+      ...basicSummary,
+      'intraIndividualCV': intraIndividualCV,
+      'percentiles': percentiles,
+      'movingAverage3': movingAverage3,
+      'movingAverage5': movingAverage5,
+      'exponentialMA': exponentialMA,
+      'normalizedData': normalizedData,
+      'standardizedData': standardizedData,
+      'progressAnalysis': progressAnalysis,
+      'rsiAnalysis': rsiAnalysis,
+      'sprintAnalysis': sprintAnalysis,
+    };
+  }
+  
+  /// RSI analizi
+  Future<Map<String, dynamic>> _calculateRSIAnalysis(int sporcuId, String olcumTuru, int lastNDays) async {
+    try {
+      // Flight time ve contact time verilerini al
+      final flightTimeData = await _getPerformanceData(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
-        degerTuru: degerTuru,
-        baslangicTarihi: baslangicTarihi,
+        degerTuru: 'ucussuresi',
+        lastNDays: lastNDays,
       );
+      
+      final contactTimeData = await _getPerformanceData(
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: 'temassuresi',
+        lastNDays: lastNDays,
+      );
+      
+      if (flightTimeData.isEmpty || contactTimeData.isEmpty) {
+        return {'error': 'RSI hesaplama için yeterli veri yok'};
+      }
+      
+      final flightTimes = flightTimeData.map((d) => d['value'] as double).toList();
+      final contactTimes = contactTimeData.map((d) => d['value'] as double).toList();
+      
+      // RSI hesaplamaları
+      if (olcumTuru.toUpperCase() == 'RJ' && flightTimes.length == contactTimes.length) {
+        return StatisticsHelper.calculateRepeatedJumpRSI(
+          flightTimes: flightTimes,
+          contactTimes: contactTimes,
+        );
+      } else if (flightTimes.isNotEmpty && contactTimes.isNotEmpty) {
+        // Tek sıçrama RSI
+        final avgFlightTime = StatisticsHelper.calculateMean(flightTimes);
+        final avgContactTime = StatisticsHelper.calculateMean(contactTimes);
+        
+        final rsi = StatisticsHelper.calculateRSIFromFlightTime(
+          flightTime: avgFlightTime,
+          contactTime: avgContactTime,
+        );
+        
+        return {
+          'average_rsi': rsi,
+          'flight_time_cv': StatisticsHelper.calculateCV(flightTimes),
+          'contact_time_cv': StatisticsHelper.calculateCV(contactTimes),
+        };
+      }
+      
+      return {'error': 'RSI hesaplama verilerinde uyumsuzluk'};
     } catch (e) {
-      debugPrint('Performans özeti alınırken hata: $e');
-      return {'error': 'Performans özeti alınırken bir hata oluştu: $e'};
+      return {'error': 'RSI analizi hatası: $e'};
     }
+  }
+  
+  /// Sprint analizi
+  Future<Map<String, dynamic>> _calculateSprintAnalysis(int sporcuId, int lastNDays) async {
+    try {
+      final cutoffDate = DateTime.now().subtract(Duration(days: lastNDays));
+      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+      
+      final sprintOlcumler = olcumler.where((olcum) {
+        try {
+          final olcumDate = DateTime.parse(olcum.olcumTarihi);
+          return olcumDate.isAfter(cutoffDate) && 
+                 olcum.olcumTuru.toLowerCase() == 'sprint';
+        } catch (e) {
+          return false;
+        }
+      }).toList();
+      
+      if (sprintOlcumler.isEmpty) {
+        return {'error': 'Sprint analizi için veri yok'};
+      }
+      
+      // En son sprint testini analiz et
+      final latestSprint = sprintOlcumler.last;
+      
+      // Kapı değerlerini topla
+      Map<int, double> kapiDegerler = {};
+      for (final deger in latestSprint.degerler) {
+        final kapiMatch = RegExp(r'KAPI(\d+)').firstMatch(deger.degerTuru.toUpperCase());
+        if (kapiMatch != null) {
+          final kapiNo = int.parse(kapiMatch.group(1)!);
+          kapiDegerler[kapiNo] = deger.deger;
+        }
+      }
+      
+      if (kapiDegerler.length < 3) {
+        return {'error': 'Sprint analizi için yeterli kapı verisi yok'};
+      }
+      
+      // Sprint kinematiği hesapla
+      final kinematics = StatisticsHelper.calculateSprintKinematics(kapiDegerler);
+      
+      return {
+        'latest_sprint_analysis': kinematics,
+        'gate_count': kapiDegerler.length,
+        'test_date': latestSprint.olcumTarihi,
+      };
+    } catch (e) {
+      return {'error': 'Sprint analizi hatası: $e'};
+    }
+  }
+  
+  /// Sportçu karşılaştırma analizi
+  Future<Map<String, dynamic>> compareAthletes({
+    required List<int> sporcuIds,
+    required String olcumTuru,
+    required String degerTuru,
+    int lastNDays = 90,
+  }) async {
+    try {
+      Map<int, Map<String, dynamic>> athleteData = {};
+      
+      for (final sporcuId in sporcuIds) {
+        final summary = await getPerformanceSummary(
+          sporcuId: sporcuId,
+          olcumTuru: olcumTuru,
+          degerTuru: degerTuru,
+          lastNDays: lastNDays,
+        );
+        
+        if (!summary.containsKey('error')) {
+          athleteData[sporcuId] = summary;
+        }
+      }
+      
+      if (athleteData.isEmpty) {
+        return {'error': 'Karşılaştırma için yeterli veri yok'};
+      }
+      
+      // Tüm sporcu değerlerini birleştir
+      final allValues = <double>[];
+      athleteData.values.forEach((data) {
+        final values = List<double>.from(data['performanceValues']);
+        allValues.addAll(values);
+      });
+      
+      // Grup istatistikleri
+      final groupStats = {
+        'group_mean': StatisticsHelper.calculateMean(allValues),
+        'group_std': StatisticsHelper.calculateStandardDeviation(allValues),
+        'group_cv': StatisticsHelper.calculateCV(allValues),
+        'between_athlete_swc': StatisticsHelper.calculateSWC(betweenAthleteData: allValues),
+      };
+      
+      // Her sporcu için z-score hesapla (gruba göre)
+      final groupMean = groupStats['group_mean']!;
+      final groupStd = groupStats['group_std']!;
+      
+      for (final entry in athleteData.entries) {
+        final athleteMean = entry.value['mean'];
+        final zScore = groupStd > 0 ? (athleteMean - groupMean) / groupStd : 0;
+        entry.value['group_z_score'] = zScore;
+        entry.value['performance_ranking'] = _rankPerformance(athleteMean, allValues);
+      }
+      
+      return {
+        'athlete_data': athleteData,
+        'group_statistics': groupStats,
+        'comparison_date': DateTime.now().toIso8601String(),
+      };
+    } catch (e) {
+      return {'error': 'Karşılaştırma analizi hatası: $e'};
+    }
+  }
+  
+  /// Performans sıralaması hesapla
+  String _rankPerformance(double value, List<double> referenceValues) {
+    final percentile = StatisticsHelper.calculatePercentile(referenceValues, 
+      ((referenceValues.where((v) => v <= value).length / referenceValues.length) * 100));
+    
+    if (percentile >= 90) return 'En İyi %10';
+    if (percentile >= 75) return 'En İyi %25';
+    if (percentile >= 50) return 'Ortalama Üstü';
+    if (percentile >= 25) return 'Ortalama Altı';
+    return 'En Düşük %25';
   }
 }

@@ -377,6 +377,10 @@ class PerformanceVisualizationHelper {
   }
   
   /// Performans özet kartı oluşturur
+ // lib/utils/performance_visualization_helper.dart
+
+// ... other code ...
+
   static Widget buildPerformanceSummaryCard({
     required Map<String, dynamic> analysis,
     required String title,
@@ -385,7 +389,6 @@ class PerformanceVisualizationHelper {
     bool isHigherBetter = true,
     VoidCallback? onTap,
   }) {
-    // Analiz sonuçlarından değerleri çıkar
     final mean = analysis['mean'] as double? ?? 0;
     final stdDev = analysis['stdDev'] as double? ?? 0;
     final cvPercentage = analysis['cvPercentage'] as double? ?? 0;
@@ -393,21 +396,24 @@ class PerformanceVisualizationHelper {
     final trend = analysis['trend'] as double? ?? 0;
     final firstDate = analysis['firstDate'] as String? ?? '';
     final lastDate = analysis['lastDate'] as String? ?? '';
-    
-    // İlk ve son tarihi formatlı göster
+
     String formattedFirstDate = '';
     String formattedLastDate = '';
     try {
-      final firstDateTime = DateTime.parse(firstDate);
-      final lastDateTime = DateTime.parse(lastDate);
-      formattedFirstDate = '${firstDateTime.day}/${firstDateTime.month}/${firstDateTime.year}';
-      formattedLastDate = '${lastDateTime.day}/${lastDateTime.month}/${lastDateTime.year}';
+      if (firstDate.isNotEmpty) {
+        final firstDateTime = DateTime.parse(firstDate);
+        formattedFirstDate = '${firstDateTime.day}/${firstDateTime.month}/${firstDateTime.year}';
+      }
+      if (lastDate.isNotEmpty) {
+        final lastDateTime = DateTime.parse(lastDate);
+        formattedLastDate = '${lastDateTime.day}/${lastDateTime.month}/${lastDateTime.year}';
+      }
     } catch (e) {
+      // Keep original if parsing fails
       formattedFirstDate = firstDate;
       formattedLastDate = lastDate;
     }
-    
-    // Trend ikonunu belirle
+
     IconData trendIcon;
     Color trendColor;
     if (trend > 0) {
@@ -420,7 +426,7 @@ class PerformanceVisualizationHelper {
       trendIcon = Icons.trending_flat;
       trendColor = Colors.orange;
     }
-    
+
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -434,15 +440,21 @@ class PerformanceVisualizationHelper {
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start, // Align items to the start vertically
                 children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: color,
+                  Expanded( // Title should be able to take available space
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      // overflow: TextOverflow.ellipsis, // Optional: if title can be very long
+                      // maxLines: 2,
                     ),
                   ),
+                  const SizedBox(width: 8), // Add spacing before trend indicator
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -450,16 +462,18 @@ class PerformanceVisualizationHelper {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(trendIcon, color: trendColor, size: 16),
                         const SizedBox(width: 4),
-                        Text(
+                        Text( // Removed Flexible here as Row is MainAxisSize.min
                           'Trend: ${trend.toStringAsFixed(2)}',
                           style: TextStyle(
                             color: trendColor,
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                           ),
+                          // overflow: TextOverflow.ellipsis, // Optional
                         ),
                       ],
                     ),
@@ -467,34 +481,59 @@ class PerformanceVisualizationHelper {
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                '$formattedFirstDate - $formattedLastDate',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
+              if (formattedFirstDate.isNotEmpty && formattedLastDate.isNotEmpty)
+                Text(
+                  '$formattedFirstDate - $formattedLastDate',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                )
+              else if (formattedFirstDate.isNotEmpty)
+                 Text(
+                  formattedFirstDate,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                )
+              else if (lastDate.isNotEmpty)
+                 Text(
+                  formattedLastDate,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
                 ),
-              ),
               const SizedBox(height: 16),
-              Row(
+              Row( // This is the Row around line 435
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildSummaryMetric(
-                    label: 'Ortalama',
-                    value: '${mean.toStringAsFixed(2)} $unit',
-                    icon: Icons.bar_chart,
-                    color: color,
+                  Expanded( // Wrap _buildSummaryMetric with Expanded
+                    child: _buildSummaryMetric(
+                      label: 'Ortalama',
+                      value: '${mean.toStringAsFixed(2)} $unit',
+                      icon: Icons.bar_chart,
+                      color: color,
+                    ),
                   ),
-                  _buildSummaryMetric(
-                    label: 'Std. Sapma',
-                    value: stdDev.toStringAsFixed(2),
-                    icon: Icons.waves,
-                    color: color,
+                  const SizedBox(width: 8), // Spacing
+                  Expanded( // Wrap _buildSummaryMetric with Expanded
+                    child: _buildSummaryMetric(
+                      label: 'Std. Sapma',
+                      value: stdDev.toStringAsFixed(2),
+                      icon: Icons.waves,
+                      color: color,
+                    ),
                   ),
-                  _buildSummaryMetric(
-                    label: 'CV%',
-                    value: '${cvPercentage.toStringAsFixed(1)}%',
-                    icon: Icons.percent,
-                    color: color,
+                  const SizedBox(width: 8), // Spacing
+                  Expanded( // Wrap _buildSummaryMetric with Expanded
+                    child: _buildSummaryMetric(
+                      label: 'CV%',
+                      value: '${cvPercentage.toStringAsFixed(1)}%',
+                      icon: Icons.percent,
+                      color: color,
+                    ),
                   ),
                 ],
               ),
@@ -522,8 +561,7 @@ class PerformanceVisualizationHelper {
       ),
     );
   }
-  
-  /// Özet metrik kartı
+
   static Widget _buildSummaryMetric({
     required String label,
     required String value,
@@ -531,6 +569,7 @@ class PerformanceVisualizationHelper {
     required Color color,
   }) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           padding: const EdgeInsets.all(8),
@@ -541,25 +580,32 @@ class PerformanceVisualizationHelper {
           child: Icon(icon, color: color, size: 20),
         ),
         const SizedBox(height: 4),
-        Text(
+        Text( // No Flexible needed here as parent Expanded will handle width
           value,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: color,
+            fontSize: 14, // Slightly reduce font size if space is tight
           ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1, // Constrain to one line for value
         ),
-        Text(
+        const SizedBox(height: 2),
+        Text( // No Flexible needed here
           label,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11, // Slightly reduce font size
             color: Colors.grey[600],
           ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1, // Constrain to one line for label
         ),
       ],
     );
   }
   
-  /// Tutarlılık skoruna göre renk belirle
   static Color _getTypicalityColor(double score) {
     if (score >= 80) return Colors.green;
     if (score >= 60) return Colors.lightGreen;
