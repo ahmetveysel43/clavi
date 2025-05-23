@@ -461,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'İzLab',
+                            'İzLab Performans',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 20,

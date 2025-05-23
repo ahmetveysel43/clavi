@@ -5,6 +5,7 @@ import '../models/sporcu_model.dart';
 import '../models/olcum_model.dart';
 import '../services/database_service.dart';
 import '../services/bluetooth_connection_service.dart';
+import '../utils/statistics_helper.dart';
 
 class SprintScreen extends StatefulWidget {
   final int? sporcuId;
@@ -15,6 +16,9 @@ class SprintScreen extends StatefulWidget {
 }
 
 class _SprintScreenState extends State<SprintScreen> {
+
+  // Kinematik analiz için
+DateTime? _lastProcessedFrame;
   final _dbService = DatabaseService();
   final _btService = BluetoothConnectionService.instance;
   bool _isLoading = true;
@@ -331,82 +335,90 @@ class _SprintScreenState extends State<SprintScreen> {
     }
   }
   
-  void _processSprintImage(CameraImage image) {
-    if (_isProcessingFrame || !_islemBasladi) return;
-    _isProcessingFrame = true;
+void _processSprintImage(CameraImage image) {
+  if (_isProcessingFrame || !_islemBasladi) return;
+  _isProcessingFrame = true;
+  
+  final timestamp = DateTime.now();
+  
+  try {
+    // Minimum frame atlama süresi kontrolü
+    if (_lastProcessedFrame != null && 
+        timestamp.difference(_lastProcessedFrame!).inMilliseconds < 50) {
+      _isProcessingFrame = false;
+      return; // 50ms'den hızlı işleme yapma
+    }
+    _lastProcessedFrame = timestamp;
     
-    final timestamp = DateTime.now();
+    // Görüntüden basit renk verileri çıkar
+    final bytes = image.planes[0].bytes;
+    final width = image.width;
     
-    try {
-      // Görüntüden basit renk verileri çıkar
-      final bytes = image.planes[0].bytes;
-      final width = image.width;
+    // Her kapı için ayrı motion detection yap
+    for (int gateIndex = 1; gateIndex < _gates.length; gateIndex++) {
+      // Eğer bu kapı zaten tetiklendiyse geç
+      if (_gateTriggered[gateIndex]) continue;
       
+      final gate = _gates[gateIndex];
       
-      // Her kapı için ayrı motion detection yap
-      for (int gateIndex = 1; gateIndex < _gates.length; gateIndex++) {
-        // Eğer bu kapı zaten tetiklendiyse geç
-        if (_gateTriggered[gateIndex]) continue;
-        
-        final gate = _gates[gateIndex];
-        
-        // Gate içindeki bölgeyi analiz et
-        double gateMotionScore = 0;
-        int pixelCount = 0;
-        
-        // Gate içindeki grid noktalarını örnekle
-        for (int y = gate.top.toInt(); y < gate.bottom.toInt(); y += 20) {
-          for (int x = gate.left.toInt(); x < gate.right.toInt(); x += 10) {
-            final index = y * width + x;
-            if (index < bytes.length) {
-              // Piksel değerini al
-              final pixelValue = bytes[index];
-              
-              // Referans ile farkını hesapla (basit yaklaşım)
-              final refIndex = (pixelCount % _backgroundReference.length);
-              final refColor = _backgroundReference[refIndex];
-              
-              final diff = (pixelValue - refColor.red).abs();
-              gateMotionScore += diff / 255.0;
-              pixelCount++;
-            }
-          }
-        }
-        
-        // Normalize et
-        if (pixelCount > 0) {
-          gateMotionScore = (gateMotionScore / pixelCount) * 100;
-          
-          // Eşik değeri üzerindeki hareket kapıyı tetikler
-          if (gateMotionScore > _motionThreshold) {
-            _gateTriggerTimes[gateIndex] = timestamp;
-            _gateTriggered[gateIndex] = true;
-            _triggerCount++;
+      // Gate içindeki bölgeyi analiz et
+      double gateMotionScore = 0;
+      int pixelCount = 0;
+      
+      // Gate içindeki grid noktalarını örnekle
+      for (int y = gate.top.toInt(); y < gate.bottom.toInt(); y += 20) {
+        for (int x = gate.left.toInt(); x < gate.right.toInt(); x += 10) {
+          final index = y * width + x;
+          if (index < bytes.length) {
+            // Piksel değerini al
+            final pixelValue = bytes[index];
             
-            // Sprint zamanı hesapla
-            final startTime = _gateTriggerTimes[0]!;
-            final elapsed = timestamp.difference(startTime).inMilliseconds / 1000.0;
+            // Referans ile farkını hesapla (basit yaklaşım)
+            final refIndex = (pixelCount % _backgroundReference.length);
+            final refColor = _backgroundReference[refIndex];
             
-            // Ölçüm verilerini güncelle
-            setState(() {
-              _olcumVerileri[_secilenOlcumNo - 1]['kapi${gateIndex + 1}'] = elapsed;
-              
-              debugPrint('Kapı ${gateIndex + 1} tetiklendi: ${elapsed.toStringAsFixed(3)}s');
-            });
-            
-            // Tüm kapılar tetiklendiyse ölçümü durdur
-            if (_triggerCount >= _gates.length) {
-              _stopMeasurement('Sprint ölçümü tamamlandı');
-            }
+            final diff = (pixelValue - refColor.red).abs();
+            gateMotionScore += diff / 255.0;
+            pixelCount++;
           }
         }
       }
-    } catch (e) {
-      debugPrint('Sprint kare işleme hatası: $e');
-    } finally {
-      _isProcessingFrame = false;
+      
+      // Normalize et
+      if (pixelCount > 0) {
+        gateMotionScore = (gateMotionScore / pixelCount) * 100;
+        
+        // Eşik değeri üzerindeki hareket kapıyı tetikler
+        if (gateMotionScore > _motionThreshold) {
+          _gateTriggerTimes[gateIndex] = timestamp;
+          _gateTriggered[gateIndex] = true;
+          _triggerCount++;
+          
+          // Sprint zamanı hesapla
+          final startTime = _gateTriggerTimes[0]!;
+          final elapsed = timestamp.difference(startTime).inMilliseconds / 1000.0;
+          
+          // Ölçüm verilerini güncelle
+          setState(() {
+            _olcumVerileri[_secilenOlcumNo - 1]['kapi${gateIndex + 1}'] = elapsed;
+            
+            debugPrint('Kapı ${gateIndex + 1} tetiklendi: ${elapsed.toStringAsFixed(3)}s');
+          });
+          
+          // Tüm kapılar tetiklendiyse ölçümü durdur ve analiz yap
+          if (_triggerCount >= _gates.length) {
+            _analyzeSprintKinematics(); // Yeni eklenen analiz
+            _stopMeasurement('Sprint ölçümü tamamlandı');
+          }
+        }
+      }
     }
+  } catch (e) {
+    debugPrint('Sprint kare işleme hatası: $e');
+  } finally {
+    _isProcessingFrame = false;
   }
+}
 
  void _processBluetoothData(String data) {
   try {
@@ -1326,27 +1338,32 @@ Widget _buildLiveStatus() {
   _showSnackBar('Sprint ölçümü için hazır. Herhangi bir sensör tetiklendiğinde sayaç başlayacak.');
 }
 
-  void _stopMeasurement([String message = 'Ölçüm durduruldu']) {
-    setState(() {
-      _islemBasladi = false;
-      _isStartButtonPressed = false;
-      _timer?.cancel();
-    });
-    
-    // Kamera ile ilgili düzeltme
-    if (_useCameraMode && _cameraController != null) {
-      try {
-        // Kamera stream açıksa durdur
-        if (_cameraController!.value.isStreamingImages) {
-          _cameraController!.stopImageStream();
-        }
-      } catch (e) {
-        debugPrint('Kamera stream durdurulurken hata: $e');
-      }
-    }
-    
-    _showSnackBar(message);
+void _stopMeasurement([String message = 'Ölçüm durduruldu']) {
+  // Durdurma işleminden önce analiz yap
+  if (!_useCameraMode && _triggerCount >= 2) {
+    _analyzeSprintKinematics();
   }
+  
+  setState(() {
+    _islemBasladi = false;
+    _isStartButtonPressed = false;
+    _timer?.cancel();
+  });
+  
+  // Kamera ile ilgili düzeltme
+  if (_useCameraMode && _cameraController != null) {
+    try {
+      // Kamera stream açıksa durdur
+      if (_cameraController!.value.isStreamingImages) {
+        _cameraController!.stopImageStream();
+      }
+    } catch (e) {
+      debugPrint('Kamera stream durdurulurken hata: $e');
+    }
+  }
+  
+  _showSnackBar(message);
+}
 
   void _clearMeasurement() {
     setState(() {
@@ -1389,6 +1406,31 @@ Widget _buildLiveStatus() {
     _showSnackBar('Ölçüm temizlendi');
   }
 
+void _analyzeSprintKinematics() {
+  final currentData = _olcumVerileri[_secilenOlcumNo - 1];
+  
+  // Kapı değerlerini topla
+  Map<int, double> kapiDegerler = {};
+  for (int i = 1; i <= 7; i++) {
+    final value = currentData['kapi$i'];
+    if (value != null && value > 0) {
+      kapiDegerler[i] = value;
+    }
+  }
+  
+  if (kapiDegerler.length >= 3) {
+    // StatisticsHelper'dan kinematik analizi kullan
+    final kinematics = StatisticsHelper.calculateSprintKinematics(kapiDegerler);
+    
+    // Sonuçları göster veya kaydet
+    debugPrint('Max Hız: ${kinematics['max_velocity']} m/s');
+    debugPrint('Max İvme: ${kinematics['max_acceleration']} m/s²');
+    
+    // UI'da göstermek için state'e ekleyebilirsiniz
+    setState(() {
+    });
+  }
+}
   Future<void> _saveMeasurements() async {
     final currentData = _olcumVerileri[_secilenOlcumNo - 1];
     if (!currentData.values.any((v) => v != null)) {

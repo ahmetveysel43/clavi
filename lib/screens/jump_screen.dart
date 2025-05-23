@@ -25,7 +25,7 @@ class JumpGuidePainter extends CustomPainter {
     
     // Rehber çizgileri için paint - daha kalın ve belirgin
     final Paint dashPaint = Paint()
-      ..color = Colors.white.withAlpha(220) // Daha belirgin olması için
+      ..color = Colors.white.withValues(alpha: 0.86) // withAlpha yerine withValues
       ..strokeWidth = 3 // Çizgi kalınlığını arttırdım
       ..style = PaintingStyle.stroke;
     
@@ -54,7 +54,7 @@ class JumpGuidePainter extends CustomPainter {
     
     // Zemin çizgisi çok daha belirgin olsun
     final Paint groundPaint = Paint()
-      ..color = Colors.red.withAlpha(255) // Tam belirgin kırmızı
+      ..color = Colors.red.withValues(alpha: 1.0) // Tam belirgin kırmızı
       ..strokeWidth = 5 // Daha kalın çizgi
       ..style = PaintingStyle.stroke;
       
@@ -67,13 +67,23 @@ class JumpGuidePainter extends CustomPainter {
     
     // Zemin uyarısı için arka plan
     final backgroundPaint = Paint()
-      ..color = Colors.black.withAlpha(150)
+      ..color = Colors.black.withValues(alpha: 0.59) // withAlpha yerine withValues
       ..style = PaintingStyle.fill;
       
-    
     final textSpan = TextSpan(
-      
-      
+      text: 'BAŞLANGIÇ NOKTASI',
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        shadows: [
+          Shadow(
+            offset: const Offset(1, 1),
+            blurRadius: 3.0,
+            color: Colors.black.withValues(alpha: 0.59),
+          ),
+        ],
+      ),
     );
     
     final textPainter = TextPainter(
@@ -559,7 +569,7 @@ class JumpScreen extends StatefulWidget {
 class _JumpScreenState extends State<JumpScreen> with WidgetsBindingObserver {
   final _dbService = DatabaseService();
   final _btService = BluetoothConnectionService.instance;
-  
+
   bool _isLoading = true;
   bool _isConnected = false;
   Sporcu? _sporcu;
@@ -669,60 +679,67 @@ class _JumpScreenState extends State<JumpScreen> with WidgetsBindingObserver {
   }
 
   void _processMeasurement() {
-    final anyActive = _sensorValues.any((v) => v < _threshold);
-    final allAbove = _sensorValues.every((v) => v >= _threshold);
+  final anyActive = _sensorValues.any((v) => v < _threshold);
+  final allAbove = _sensorValues.every((v) => v >= _threshold);
 
-    if (_zemindeMi && allAbove) {
-      _zemindeMi = false;
-      _kalkisZamani = DateTime.now();
-      if (_inisZamani != null) _temasSuresi = _kalkisZamani!.difference(_inisZamani!);
-      if (_jumpType == OlcumTuru.rj && _sicramaSayisi == 0) _rjBaslamaZamani = DateTime.now();
-    } else if (!_zemindeMi && anyActive) {
-      _zemindeMi = true;
-      _inisZamani = DateTime.now();
+  if (_zemindeMi && allAbove) {
+    _zemindeMi = false;
+    _kalkisZamani = DateTime.now();
+    if (_inisZamani != null) _temasSuresi = _kalkisZamani!.difference(_inisZamani!);
+    if (_jumpType == OlcumTuru.rj && _sicramaSayisi == 0) _rjBaslamaZamani = DateTime.now();
+  } else if (!_zemindeMi && anyActive) {
+    _zemindeMi = true;
+    _inisZamani = DateTime.now();
 
-      if (_kalkisZamani != null) {
-        _ucusSuresi = _inisZamani!.difference(_kalkisZamani!);
-        _sicramaSayisi++;
+    if (_kalkisZamani != null) {
+      _ucusSuresi = _inisZamani!.difference(_kalkisZamani!);
+      _sicramaSayisi++;
 
-        final ucusSaniye = _ucusSuresi.inMicroseconds / 1000000.0;
-        final yukseklikCM = 0.5 * 9.81 * pow(ucusSaniye / 2, 2) * 100;
-        final kilo = double.tryParse(_vucutAgirligiController.text) ?? double.tryParse(_sporcu?.kilo ?? '') ?? 0;
-        final guc = kilo > 0 ? 61.9 * yukseklikCM + 36.0 * kilo + 1822 : null;
-        final temasSaniye = _temasSuresi.inMicroseconds > 0 ? _temasSuresi.inMicroseconds / 1000000.0 : null;
-        final rsi = temasSaniye != null && temasSaniye > 0 ? ucusSaniye / temasSaniye : null;
-        final ritim = _jumpType == OlcumTuru.rj && _sicramaSayisi > 0 && _rjBaslamaZamani != null
-            ? _sicramaSayisi / (DateTime.now().difference(_rjBaslamaZamani!).inMilliseconds / 1000.0)
-            : null;
+      final ucusSaniye = _ucusSuresi.inMicroseconds / 1000000.0;
+      final yukseklikCM = 0.5 * 9.81 * pow(ucusSaniye / 2, 2) * 100;
+      final kilo = double.tryParse(_vucutAgirligiController.text) ?? double.tryParse(_sporcu?.kilo ?? '') ?? 0;
+      final guc = kilo > 0 ? 61.9 * yukseklikCM + 36.0 * kilo + 1822 : null;
+      final temasSaniye = _temasSuresi.inMicroseconds > 0 ? _temasSuresi.inMicroseconds / 1000000.0 : null;
+      
+      // RSI hesaplaması - düzeltilmiş
+      double? rsi;
+      if ((_jumpType == OlcumTuru.dj || _jumpType == OlcumTuru.rj) && temasSaniye != null && temasSaniye > 0) {
+        // StatisticsHelper metodunu kullan
+        rsi = ucusSaniye / temasSaniye; // Basit RSI formülü
+      }
+      
+      final ritim = _jumpType == OlcumTuru.rj && _sicramaSayisi > 0 && _rjBaslamaZamani != null
+          ? _sicramaSayisi / (DateTime.now().difference(_rjBaslamaZamani!).inMilliseconds / 1000.0)
+          : null;
 
-        if (_isValidJump(yukseklikCM, ucusSaniye)) {
-          setState(() {
-            _olcumVerileri[_secilenOlcumNo - 1] = {
-              'ucusSuresi': ucusSaniye,
-              'yukseklik': yukseklikCM,
-              'guc': guc,
-              'temasSuresi': temasSaniye,
-              'rsi': rsi,
-              'ritim': ritim,
-            };
+      if (_isValidJump(yukseklikCM, ucusSaniye)) {
+        setState(() {
+          _olcumVerileri[_secilenOlcumNo - 1] = {
+            'ucusSuresi': ucusSaniye,
+            'yukseklik': yukseklikCM,
+            'guc': guc,
+            'temasSuresi': temasSaniye,
+            'rsi': rsi,
+            'ritim': ritim,
+          };
 
-            if (_jumpType == OlcumTuru.rj) {
-              _flightTimes.add(_ucusSuresi);
-              _contactTimes.add(_temasSuresi);
-              _jumpHeights.add(yukseklikCM);
-              if (_rjBaslamaZamani != null && DateTime.now().difference(_rjBaslamaZamani!).inSeconds >= 15) {
-                _stopMeasurement('Tekrarlı sıçrama ölçümü tamamlandı (15 saniye)');
-              }
-            } else if (_sicramaSayisi >= 1) {
-              _stopMeasurement('${_jumpType.displayName} ölçümü tamamlandı');
+          if (_jumpType == OlcumTuru.rj) {
+            _flightTimes.add(_ucusSuresi);
+            _contactTimes.add(_temasSuresi);
+            _jumpHeights.add(yukseklikCM);
+            if (_rjBaslamaZamani != null && DateTime.now().difference(_rjBaslamaZamani!).inSeconds >= 15) {
+              _stopMeasurement('Tekrarlı sıçrama ölçümü tamamlandı (15 saniye)');
             }
-          });
-        } else {
-          debugPrint('Geçersiz sıçrama tespit edildi: $yukseklikCM cm, $ucusSaniye saniye');
-        }
+          } else if (_sicramaSayisi >= 1) {
+            _stopMeasurement('${_jumpType.displayName} ölçümü tamamlandı');
+          }
+        });
+      } else {
+        debugPrint('Geçersiz sıçrama tespit edildi: $yukseklikCM cm, $ucusSaniye saniye');
       }
     }
   }
+}
   
   bool _isValidJump(double height, double flightTime) {
     if (height > 120 || height < 3) return false;
@@ -875,54 +892,45 @@ Future<void> _pickVideoFromDevice() async {
   }
 }
 
+// _initializeVideoPlayer metodunu güncelle:
 Future<void> _initializeVideoPlayer(String videoPath) async {
   try {
-    // Mevcut oynatıcıyı temizle
     _videoPlayerController?.dispose();
     
-    // Yeni video oynatıcı başlat - yüksek performans ayarları
     _videoPlayerController = VideoPlayerController.file(
       File(videoPath),
       videoPlayerOptions: VideoPlayerOptions(
-        mixWithOthers: false, // Daha iyi performans için
-        allowBackgroundPlayback: false, // Daha iyi performans için
+        mixWithOthers: false,
+        allowBackgroundPlayback: false,
       ),
     );
     
-    // Önce tamamen yükle ve initialize et - bu daha stabil çalışmayı sağlar
     await _videoPlayerController!.initialize();
     
-    // Video özelliklerini kullan - gerçek FPS değerini al
-    try {
-      // Bazı videolarda bu bilgi bulunabilir
-      if (_videoPlayerController!.value.size.width > 0) {
-        // FPS değerini otomatik ayarla (varsayılan 60)
-        setState(() {
-          // Bazı video formatları FPS bilgisini içerebilir, aksi halde varsayılan 30
-          _fps = 30.0;
-          _fpsController.text = _fps.toString();
-        });
-      }
-    } catch (e) {
-      debugPrint('Video FPS tespiti yapılamadı: $e');
+    // FPS tespiti için metadata kontrolü
+    final videoDuration = _videoPlayerController!.value.duration;
+    if (videoDuration.inMilliseconds > 0) {
+      // Varsayılan FPS değerleri
+      setState(() {
+        // Video çözünürlüğüne göre tahmini FPS
+        final height = _videoPlayerController!.value.size.height;
+        if (height >= 1080) {
+          _fps = 30.0; // Full HD genelde 30fps
+        } else if (height >= 720) {
+          _fps = 60.0; // HD genelde 60fps olabilir
+        } else {
+          _fps = 30.0; // Varsayılan
+        }
+        _fpsController.text = _fps.toString();
+      });
     }
     
-    // Video oynatma ayarlarını optimize et
-    await _videoPlayerController!.setPlaybackSpeed(1.0); // Normal hız
+    await _videoPlayerController!.setPlaybackSpeed(1.0);
     await _videoPlayerController!.setLooping(false);
-    
-    // Başlangıç karesini görüntüle
     await _videoPlayerController!.seekTo(const Duration(milliseconds: 1));
     await _videoPlayerController!.pause();
     
-    // Başarılı şekilde yüklendi
     setState(() {});
-    
-    // Video bilgilerini logla (geliştirme için)
-    debugPrint('Video yüklendi: ${_videoPlayerController!.value.size.width}x${_videoPlayerController!.value.size.height}');
-    debugPrint('Video süresi: ${_videoPlayerController!.value.duration.inMilliseconds} ms');
-    
-    // Pozisyon değişikliği için dinleyiciyi ekle
     _addVideoPositionListener();
     
   } catch (e) {
@@ -930,7 +938,6 @@ Future<void> _initializeVideoPlayer(String videoPath) async {
     _showSnackBar('Video oynatılamadı: $e');
   }
 }
-
   double _calculateJumpHeight(double flightTime) {
     const double g = 9.81; // Yerçekimi ivmesi (m/s²)
     final heightInMeters = 0.5 * g * pow(flightTime / 2, 2);

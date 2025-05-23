@@ -1,6 +1,7 @@
 // services/performance_analysis_service.dart
 
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import '../models/olcum_model.dart';
 import '../utils/statistics_helper.dart';
 import 'database_service.dart';
@@ -45,35 +46,25 @@ class PerformanceAnalysisService {
       final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(values);
       final zScores = StatisticsHelper.calculateZScores(values);
       
-      // SWC ve MDC hesaplamaları - Düzeltilmiş metodları kullan
-      final swc = StatisticsHelper.calculateSWC(betweenAthleteData: values);
+      // SWC hesaplaması - Düzeltilmiş
+      final swc = await _calculateSWCWithPopulationData(
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+      );
       
-      // MDC için test-retest verileri gerekli, eğer yoksa 0 döndür
-      double mdc = 0.0;
-      if (values.length >= 4) {
-        // Basit yaklaşım: ardışık değerleri test-retest çifti olarak kullan
-        List<double> testRetestPairs = [];
-        for (int i = 0; i < values.length - 1; i += 2) {
-          if (i + 1 < values.length) {
-            testRetestPairs.add(values[i]);
-            testRetestPairs.add(values[i + 1]);
-          }
-        }
-        if (testRetestPairs.length >= 4) {
-          mdc = StatisticsHelper.calculateMDC(testRetestPairs);
-        }
-      }
+      // MDC hesaplaması - Düzeltilmiş
+      final mdc = await _calculateMDCFromDatabase(
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+      );
       
-      // Test güvenilirlik verilerini al (eğer veritabanında varsa)
-      Map<String, dynamic> reliability = {};
-      try {
-        reliability = await _getTestReliability(
-          olcumTuru: olcumTuru,
-          degerTuru: degerTuru,
-        );
-      } catch (e) {
-        reliability = {'error': 'Güvenilirlik verisi bulunamadı'};
-      }
+      // Test güvenilirlik verilerini al
+      Map<String, dynamic> reliability = await _getTestReliability(
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+      );
       
       // Performans sınıflandırması
       final performanceClass = StatisticsHelper.classifyPerformance(values.last, values);
@@ -94,7 +85,7 @@ class PerformanceAnalysisService {
       final q75 = StatisticsHelper.calculatePercentile(values, 75);
       final iqr = q75 - q25;
       
-      // Son 3 değerin ortalaması vs önceki 3 değerin ortalaması
+      // Performans trendi
       String performanceTrend = 'Kararlı';
       if (values.length >= 6) {
         final recent3 = values.sublist(values.length - 3);
@@ -200,7 +191,7 @@ class PerformanceAnalysisService {
     return performances;
   }
   
-  /// Test güvenilirlik verilerini al (basit implementasyon)
+  /// Test güvenilirlik verilerini al
   Future<Map<String, dynamic>> _getTestReliability({
     required String olcumTuru,
     required String degerTuru,
@@ -224,6 +215,111 @@ class PerformanceAnalysisService {
       'cv_percent': (1 - reliability) * 10, // Basit CV tahmini
       'source': 'Varsayılan değer',
     };
+  }
+  
+  /// MDC hesaplaması - Düzeltilmiş metod
+  Future<double> _calculateMDCFromDatabase({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+  }) async {
+    try {
+      // Aynı gün içinde yapılan test-retest ölçümlerini bul
+      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+      
+      Map<String, List<double>> dailyMeasurements = {};
+      
+      for (final olcum in olcumler) {
+        if (olcum.olcumTuru.toLowerCase() != olcumTuru.toLowerCase()) continue;
+        
+        final date = olcum.olcumTarihi.split('T')[0]; // Sadece tarih kısmı
+        final deger = olcum.degerler.firstWhere(
+          (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+        );
+        
+        if (deger.deger > 0) {
+          dailyMeasurements.putIfAbsent(date, () => []);
+          dailyMeasurements[date]!.add(deger.deger);
+        }
+      }
+      
+      // Test-retest çiftlerini oluştur
+      List<double> testRetestData = [];
+      for (final measurements in dailyMeasurements.values) {
+        if (measurements.length >= 2) {
+          // Aynı gün içindeki ilk iki ölçümü test-retest olarak kullan
+          testRetestData.add(measurements[0]);
+          testRetestData.add(measurements[1]);
+        }
+      }
+      
+      if (testRetestData.length >= 4) {
+        return StatisticsHelper.calculateMDC(testRetestData);
+      }
+      
+      return 0.0;
+    } catch (e) {
+      debugPrint('MDC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+  
+  /// SWC hesaplaması - Populasyon verisi ile
+  Future<double> _calculateSWCWithPopulationData({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+  }) async {
+    try {
+      // Tüm sporcuların verilerini al (populasyon verisi)
+      final allSporcular = await _databaseService.getAllSporcular();
+      List<double> populationData = [];
+      
+      for (final sporcu in allSporcular) {
+        if (sporcu.id == sporcuId) continue; // Kendisini hariç tut
+        
+        final performances = await _getPerformanceData(
+          sporcuId: sporcu.id!,
+          olcumTuru: olcumTuru,
+          degerTuru: degerTuru,
+          lastNDays: 365, // Son 1 yıl
+        );
+        
+        if (performances.isNotEmpty) {
+          // Her sporcunun ortalamasını al
+          final values = performances.map((p) => p['value'] as double).toList();
+          populationData.add(StatisticsHelper.calculateMean(values));
+        }
+      }
+      
+      if (populationData.length >= 5) {
+        // Test türüne özel SWC hesapla
+        return StatisticsHelper.calculateSWCForTestType(
+          populationData: populationData,
+          testType: olcumTuru,
+          athleteLevel: 'trained', // Bu bilgiyi sporcu modelinden alabilirsiniz
+        );
+      }
+      
+      // Populasyon verisi yoksa sporcunun kendi verilerini kullan
+      final ownData = await _getPerformanceData(
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        lastNDays: 365,
+      );
+      
+      if (ownData.isNotEmpty) {
+        final values = ownData.map((p) => p['value'] as double).toList();
+        return StatisticsHelper.calculateSWC(betweenAthleteData: values);
+      }
+      
+      return 0.0;
+    } catch (e) {
+      debugPrint('SWC hesaplama hatası: $e');
+      return 0.0;
+    }
   }
   
   /// Detaylı performans raporu

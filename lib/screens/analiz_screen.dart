@@ -32,6 +32,8 @@ class AnalizScreen extends StatefulWidget {
 }
 
 class _AnalizScreenState extends State<AnalizScreen> with TickerProviderStateMixin {
+
+
   final DatabaseService _databaseService = DatabaseService();
   List<Sporcu> _sporcular = [];
   Sporcu? _secilenSporcu;
@@ -49,6 +51,8 @@ class _AnalizScreenState extends State<AnalizScreen> with TickerProviderStateMix
   final List<String> _testTypes = ['Tümü', 'Sprint', 'CMJ', 'SJ', 'DJ', 'RJ'];
   String _selectedDateFilter = 'Tümü';
   final List<String> _dateFilters = ['Tümü', 'Son 7 Gün', 'Son 30 Gün', 'Son 3 Ay', 'Son 6 Ay', 'Son 1 Yıl'];
+
+  final Map<String, dynamic> _performanceCache = {};
   
   // İstatistik değerleri
   int _toplamTest = 0;
@@ -73,11 +77,12 @@ class _AnalizScreenState extends State<AnalizScreen> with TickerProviderStateMix
     });
   }
   
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
+ @override
+void dispose() {
+  _animationController.dispose();
+  _performanceCache.clear(); // Cache'i temizle
+  super.dispose();
+}
   
   void _initializeAnimations() {
     _animationController = AnimationController(
@@ -125,34 +130,73 @@ class _AnalizScreenState extends State<AnalizScreen> with TickerProviderStateMix
     }
   }
 
-  Future<void> _loadOlcumler(int sporcuId) async {
-    try {
-      setState(() => _isLoading = true);
-      
-      final sporcuFuture = _databaseService.getSporcu(sporcuId);
-      final olcumlerFuture = _databaseService.getOlcumlerBySporcuId(sporcuId);
-      
-      final results = await Future.wait([sporcuFuture, olcumlerFuture]);
-      
-      _secilenSporcu = results[0] as Sporcu;
-      _olcumler = results[1] as List<Olcum>;
+Future<void> _loadOlcumler(int sporcuId) async {
+  // Cache kontrolü
+  final cacheKey = 'olcumler_$sporcuId';
+  final now = DateTime.now();
+  
+  if (_performanceCache.containsKey(cacheKey)) {
+    final cachedData = _performanceCache[cacheKey];
+    final cacheTime = cachedData['timestamp'] as DateTime;
+    
+    // Cache 5 dakikadan yeni ise kullan
+    if (now.difference(cacheTime).inMinutes < 5) {
+      _olcumler = List<Olcum>.from(cachedData['olcumler']);
+      _secilenSporcu = cachedData['sporcu'] as Sporcu;
       
       _olcumler.sort((a, b) => b.olcumTarihi.compareTo(a.olcumTarihi));
-      
       _applyDateFilter();
       _groupTestsByType();
       _calculateStats();
       
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar('Ölçümler yüklenirken hata: $e', isError: true);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
+      return;
     }
   }
+  
+  try {
+    setState(() => _isLoading = true);
+    
+    final sporcuFuture = _databaseService.getSporcu(sporcuId);
+    final olcumlerFuture = _databaseService.getOlcumlerBySporcuId(sporcuId);
+    
+    final results = await Future.wait([sporcuFuture, olcumlerFuture]);
+    
+    _secilenSporcu = results[0] as Sporcu;
+    _olcumler = results[1] as List<Olcum>;
+    
+    // Cache'e kaydet
+    _performanceCache[cacheKey] = {
+      'olcumler': List<Olcum>.from(_olcumler),
+      'sporcu': _secilenSporcu,
+      'timestamp': now,
+    };
+    
+    // Cache boyutu kontrolü - 10 sporcu üzerinde ise eski cache'leri temizle
+    if (_performanceCache.length > 10) {
+      final oldestKey = _performanceCache.entries
+          .reduce((a, b) => (a.value['timestamp'] as DateTime)
+              .isBefore(b.value['timestamp'] as DateTime) ? a : b)
+          .key;
+      _performanceCache.remove(oldestKey);
+    }
+    
+    _olcumler.sort((a, b) => b.olcumTarihi.compareTo(a.olcumTarihi));
+    
+    _applyDateFilter();
+    _groupTestsByType();
+    _calculateStats();
+    
+  } catch (e) {
+    if (mounted) {
+      _showSnackBar('Ölçümler yüklenirken hata: $e', isError: true);
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
   
   void _showSnackBar(String message, {bool isError = false}) {
     if (mounted) {
@@ -2446,122 +2490,6 @@ Widget _buildSprintMetricCard({
     );
   }
 
-  Widget _buildSprintGraph(Map<int, double> kapiDegerler) {
-    final spots = <FlSpot>[];
-    final kapiMesafeleri = [0, 5, 10, 15, 20, 30, 40];
-    
-    kapiDegerler.forEach((kapi, sure) {
-      if (kapi - 1 < kapiMesafeleri.length) {
-        spots.add(FlSpot(kapiMesafeleri[kapi - 1].toDouble(), sure));
-      }
-    });
-    
-    spots.sort((a, b) => a.x.compareTo(b.x));
-    
-    return Container(
-      height: 220,
-      padding: const EdgeInsets.only(right: 16, top: 8),
-      child: spots.length < 2
-          ? const Center(
-              child: Text(
-                'Grafik için yeterli veri yok',
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
-          : LineChart(
-              LineChartData(
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: true,
-                  horizontalInterval: 1,
-                  verticalInterval: 5,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey.withOpacity(0.2),
-                      strokeWidth: 1,
-                    );
-                  },
-                  getDrawingVerticalLine: (value) {
-                    return FlLine(
-                      color: Colors.grey.withOpacity(0.2),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      interval: 5,
-                      getTitlesWidget: (value, meta) {
-                        return SideTitleWidget(
-                          axisSide: meta.axisSide,
-                          child: Text(
-                            '${value.toInt()}m',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        );
-                      },
-                      reservedSize: 30,
-                    ),
-                  ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      interval: 1,
-                      getTitlesWidget: (value, meta) {
-                        return SideTitleWidget(
-                          axisSide: meta.axisSide,
-                          child: Text(
-                            '${value.toStringAsFixed(1)}s',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        );
-                      },
-                      reservedSize: 40,
-                    ),
-                  ),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                ),
-                borderData: FlBorderData(
-                  show: true,
-                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                ),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: spots,
-                    isCurved: true,
-                    color: const Color(0xFFE57373),
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (spot, percent, barData, index) =>
-                          FlDotCirclePainter(
-                        radius: 5,
-                        color: const Color(0xFFE57373),
-                        strokeWidth: 2,
-                        strokeColor: Colors.white,
-                      ),
-                    ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFFE57373).withOpacity(0.3),
-                          const Color(0xFFE57373).withOpacity(0.0),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
 
   Widget _buildJumpDetails(Olcum olcum) {
     final yukseklik = olcum.degerler.firstWhere(

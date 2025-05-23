@@ -82,13 +82,16 @@ class OlcumDeger {
     return 'OlcumDeger{id: $id, olcumId: $olcumId, degerTuru: $degerTuru, deger: $deger}';
   }
 }
-
+// Dosyanın sonuna, Olcum sınıfından sonra ekleyin:
 enum OlcumTuru {
-  sprint,
-  cmj,
-  sj,
-  dj,
-  rj
+  cmj('CMJ'),
+  sj('SJ'),
+  dj('DJ'),
+  rj('RJ'),
+  sprint('SPRINT');
+
+  final String displayName;
+  const OlcumTuru(this.displayName);
 }
 
 extension OlcumTuruExtension on OlcumTuru {
