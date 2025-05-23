@@ -16,9 +16,11 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
   final _databaseService = DatabaseService();
   Sporcu? _secilenSporcu;
   List<Sporcu> _sporcular = [];
-  List<Olcum> _olcumler = [];
-  Map<int, List<Olcum>> _testGruplari = {};
-  int? _secilenTestId;
+  List<Olcum> _tumOlcumler = [];
+  
+  // Çoklu seçim için
+  final List<Olcum> _secilenOlcumler = [];
+  final Set<int> _secilenOlcumIds = {};
   
   // Form controller'ları
   final _vucutAgirligiController = TextEditingController();
@@ -86,43 +88,27 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
         _vucutAgirligiController.text = "70.0";
       }
       
-      // Ölçümleri al - Resisted Sprint ölçümlerini filtrele
-      _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+      // Tüm ölçümleri al
+      _tumOlcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
       
-      // Sadece Resisted Sprint ölçümlerini filtrele
-      _olcumler = _olcumler.where((olcum) => 
+      // Sprint ölçümlerini filtrele
+      _tumOlcumler = _tumOlcumler.where((olcum) => 
+        olcum.olcumTuru.toUpperCase() == 'SPRINT' ||
         olcum.olcumTuru.toUpperCase().contains('RESISTED') || 
         olcum.olcumTuru.toUpperCase().contains('SLED') ||
         olcum.olcumTuru.toUpperCase().contains('LOAD')).toList();
       
-      if (_olcumler.isEmpty) {
-        // Eğer resisted sprint yoksa normal sprint'i al
-        _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-        _olcumler = _olcumler.where((olcum) => 
-          olcum.olcumTuru.toUpperCase() == 'SPRINT').toList();
-      }
-      
-      if (_olcumler.isEmpty) {
+      if (_tumOlcumler.isEmpty) {
         throw Exception('Sprint ölçümü bulunamadı.');
       }
       
-      // Ölçümleri test ID'lerine göre grupla
-      _testGruplari = {};
-      for (var olcum in _olcumler) {
-        if (!_testGruplari.containsKey(olcum.testId)) {
-          _testGruplari[olcum.testId] = [];
-        }
-        _testGruplari[olcum.testId]!.add(olcum);
-      }
+      // Seçimleri sıfırla
+      _secilenOlcumler.clear();
+      _secilenOlcumIds.clear();
       
-      // En son test'i seç
-      if (_testGruplari.isNotEmpty) {
-        List<int> testIdler = _testGruplari.keys.toList();
-        testIdler.sort((a, b) => b.compareTo(a));
-        setState(() {
-          _secilenTestId = testIdler.first;
-        });
-      }
+      // Tarihe göre sırala (yeniden eskiye)
+      _tumOlcumler.sort((a, b) => b.olcumTarihi.compareTo(a.olcumTarihi));
+      
     } catch (e) {
       _showSnackBar('Hata: $e');
     } finally {
@@ -138,10 +124,42 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
     }
   }
   
+  // Ölçüm seçimi toggle
+  void _toggleOlcumSelection(Olcum olcum) {
+    setState(() {
+      if (_secilenOlcumIds.contains(olcum.id)) {
+        _secilenOlcumIds.remove(olcum.id);
+        _secilenOlcumler.removeWhere((o) => o.id == olcum.id);
+      } else {
+        _secilenOlcumIds.add(olcum.id!); // Non-null assertion eklendi
+        _secilenOlcumler.add(olcum);
+      }
+    });
+  }
+  
+  // Tümünü seç/seçme
+  void _toggleSelectAll() {
+    setState(() {
+      if (_secilenOlcumIds.length == _tumOlcumler.length) {
+        // Tümünü kaldır
+        _secilenOlcumIds.clear();
+        _secilenOlcumler.clear();
+      } else {
+        // Tümünü seç
+        _secilenOlcumIds.clear();
+        _secilenOlcumler.clear();
+        for (var olcum in _tumOlcumler) {
+          _secilenOlcumIds.add(olcum.id!); // Non-null assertion eklendi
+          _secilenOlcumler.add(olcum);
+        }
+      }
+    });
+  }
+  
   // Load-Velocity profili hesaplama
   void _calculateLoadVelocityProfile() {
-    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
-      _showSnackBar('Lütfen bir test seçin');
+    if (_secilenOlcumler.length < 2) {
+      _showSnackBar('En az 2 ölçüm seçmelisiniz');
       return;
     }
     
@@ -173,34 +191,12 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
   
   // Test verilerini hazırla
   void _prepareTestData() {
-    List<Olcum> secilenOlcumler = _testGruplari[_secilenTestId]!;
-    
     _testLoads = [];
     _testVelocities = [];
     
-    for (var olcum in secilenOlcumler) {
-      // Yük bilgisini al (ağırlık olarak kaydedilmiş olabilir)
-      double yukDegeri = 0.0;
-      var yukDeger = olcum.degerler.firstWhere(
-        (d) => d.degerTuru.toUpperCase().contains('LOAD') || 
-               d.degerTuru.toUpperCase().contains('WEIGHT') ||
-               d.degerTuru.toUpperCase().contains('YUK'),
-        orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
-      );
-      
-      if (yukDeger.deger > 0) {
-        yukDegeri = yukDeger.deger;
-      } else {
-        // Eğer yük bilgisi yoksa ölçüm sırasına göre varsayılan yükler
-        switch (olcum.olcumSirasi) {
-          case 1: yukDegeri = 0; break; // Yüksüz
-          case 2: yukDegeri = 25; break;
-          case 3: yukDegeri = 50; break;
-          case 4: yukDegeri = 75; break;
-          case 5: yukDegeri = 100; break;
-          default: yukDegeri = olcum.olcumSirasi * 25.0; break;
-        }
-      }
+    for (var olcum in _secilenOlcumler) {
+      // Yük bilgisini al
+      double yukDegeri = _getLoadValue(olcum);
       
       // Split zamanlarını al ve hızları hesapla
       List<double> splitTimes = [];
@@ -216,31 +212,9 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
       }
       
       if (splitTimes.isNotEmpty) {
-        // Split hızlarını hesapla (5m / split zaman)
-        List<double> splitVelocities = [];
-        
-        // İlk split (0-5m)
-        if (splitTimes.length >= 1) {
-          double velocity = 5.0 / splitTimes[0];
-          if (velocity.isFinite && velocity > 0) {
-            splitVelocities.add(velocity);
-          }
-        }
-        
-        // Diğer split'ler (5m increments)
-        for (int i = 1; i < splitTimes.length; i++) {
-          double splitTime = splitTimes[i] - splitTimes[i-1];
-          if (splitTime > 0) {
-            double velocity = 5.0 / splitTime;
-            if (velocity.isFinite && velocity > 0) {
-              splitVelocities.add(velocity);
-            }
-          }
-        }
-        
-        // Maksimal hızı al
-        if (splitVelocities.isNotEmpty) {
-          double maxVel = splitVelocities.reduce(math.max);
+        // Maksimal hızı hesapla
+        double maxVel = _calculateMaxVelocity(splitTimes);
+        if (maxVel > 0) {
           _testLoads.add(yukDegeri);
           _testVelocities.add(maxVel);
         }
@@ -262,6 +236,58 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
       _maxVelocity = _testVelocities.first; // İlk değer yüksüz olmalı
       _maksimalHizController.text = _maxVelocity.toStringAsFixed(2);
     }
+  }
+  
+  // Yük değerini al
+  double _getLoadValue(Olcum olcum) {
+    // Önce özel yük alanlarını kontrol et
+    var yukDeger = olcum.degerler.firstWhere(
+      (d) => d.degerTuru.toUpperCase().contains('LOAD') || 
+             d.degerTuru.toUpperCase().contains('WEIGHT') ||
+             d.degerTuru.toUpperCase().contains('YUK') ||
+             d.degerTuru.toUpperCase().contains('SLED'),
+      orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+    );
+    
+    if (yukDeger.deger > 0) {
+      return yukDeger.deger;
+    }
+    
+    // Eğer yük bilgisi yoksa ölçüm sırasına göre varsayılan yükler
+    switch (olcum.olcumSirasi) {
+      case 1: return 0; // Yüksüz
+      case 2: return 25;
+      case 3: return 50;
+      case 4: return 75;
+      case 5: return 100;
+      default: return olcum.olcumSirasi * 25.0;
+    }
+  }
+  
+  // Maksimal hız hesapla
+  double _calculateMaxVelocity(List<double> splitTimes) {
+    List<double> splitVelocities = [];
+    
+    // İlk split (0-5m)
+    if (splitTimes.isNotEmpty && splitTimes[0] > 0) {
+      double velocity = 5.0 / splitTimes[0];
+      if (velocity.isFinite && velocity > 0) {
+        splitVelocities.add(velocity);
+      }
+    }
+    
+    // Diğer split'ler (5m increments)
+    for (int i = 1; i < splitTimes.length; i++) {
+      double splitTime = splitTimes[i] - splitTimes[i-1];
+      if (splitTime > 0) {
+        double velocity = 5.0 / splitTime;
+        if (velocity.isFinite && velocity > 0) {
+          splitVelocities.add(velocity);
+        }
+      }
+    }
+    
+    return splitVelocities.isNotEmpty ? splitVelocities.reduce(math.max) : 0.0;
   }
   
   // Lineer regresyon hesapla
@@ -361,6 +387,18 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
     }
   }
   
+  String _formatTarih(String tarih) {
+    try {
+      if (tarih.contains('T')) {
+        final date = DateTime.parse(tarih);
+        return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+      }
+      return tarih;
+    } catch (e) {
+      return tarih;
+    }
+  }
+  
   // Profil değerlendirmesi
   String _getProfileInterpretation() {
     if (_testLoads.isEmpty || _testVelocities.isEmpty) return "";
@@ -371,7 +409,8 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
     interpretation += "• Eğim (Slope): ${_slope.toStringAsFixed(4)} m/s/kg\n";
     interpretation += "• Y-kesim (Intercept): ${_intercept.toStringAsFixed(2)} m/s\n";
     interpretation += "• R²: ${_rSquared.toStringAsFixed(3)}\n";
-    interpretation += "• Teorik Sprint 1RM (L0): ${_l0.toStringAsFixed(1)} kg\n\n";
+    interpretation += "• Teorik Sprint 1RM (L0): ${_l0.toStringAsFixed(1)} kg\n";
+    interpretation += "• Analiz edilen ölçüm sayısı: ${_secilenOlcumler.length}\n\n";
     
     // R² değerlendirmesi
     if (_rSquared >= 0.90) {
@@ -410,11 +449,9 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
                   const SizedBox(height: 16),
                   
                   if (_secilenSporcu != null) ...[
-                    if (_testGruplari.isNotEmpty) _buildTestSecimBolumu(),
+                    if (_tumOlcumler.isNotEmpty) _buildOlcumSecimBolumu(),
                     const SizedBox(height: 16),
                     _buildParametrelerForm(),
-                    const SizedBox(height: 16),
-                    _buildTestDataTable(),
                     const SizedBox(height: 16),
                     _buildHesaplaButton(),
                     const SizedBox(height: 16),
@@ -487,7 +524,7 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
     );
   }
   
-  Widget _buildTestSecimBolumu() {
+  Widget _buildOlcumSecimBolumu() {
     return Card(
       elevation: 4,
       child: Padding(
@@ -495,59 +532,77 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Test Seçin',
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Ölçüm Seçimi (En az 2 adet)',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0288D1),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _toggleSelectAll,
+                  child: Text(
+                    _secilenOlcumIds.length == _tumOlcumler.length ? 'Hiçbirini Seçme' : 'Tümünü Seç',
+                    style: const TextStyle(color: Color(0xFF0288D1)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Seçilen: ${_secilenOlcumler.length}/${_tumOlcumler.length}',
               style: TextStyle(
-                fontSize: 18,
+                color: _secilenOlcumler.length >= 2 ? Colors.green : Colors.red,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF0288D1),
               ),
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: Colors.grey[200],
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            SizedBox(
+              height: 300,
+              child: ListView.builder(
+                itemCount: _tumOlcumler.length,
+                itemBuilder: (context, index) {
+                  final olcum = _tumOlcumler[index];
+                  final isSelected = _secilenOlcumIds.contains(olcum.id);
+                  final yukDegeri = _getLoadValue(olcum);
+                  
+                  return Card(
+                    elevation: isSelected ? 4 : 1,
+                    color: isSelected ? const Color(0xFF0288D1).withAlpha(20) : null,
+                    child: CheckboxListTile(
+                      value: isSelected,
+                      onChanged: (bool? value) {
+                        _toggleOlcumSelection(olcum);
+                      },
+                      title: Text(
+                        'Test #${olcum.testId} - Ölçüm ${olcum.olcumSirasi}',
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Tarih: ${_formatTarih(olcum.olcumTarihi)}'),
+                          Text('Yük: ${yukDegeri.toStringAsFixed(0)} kg'),
+                          Text('Tür: ${olcum.olcumTuru}'),
+                        ],
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: const Color(0xFF0288D1),
+                    ),
+                  );
+                },
               ),
-              hint: const Text('Test Seçin'),
-              value: _secilenTestId,
-              onChanged: (testId) {
-                if (testId != null) {
-                  setState(() {
-                    _secilenTestId = testId;
-                  });
-                }
-              },
-              items: _testGruplari.keys.map((testId) {
-                final olcum = _testGruplari[testId]!.first;
-                final tarih = _formatTarih(olcum.olcumTarihi);
-                return DropdownMenuItem<int>(
-                  value: testId,
-                  child: Text('$tarih - Test #$testId'),
-                );
-              }).toList(),
             ),
           ],
         ),
       ),
     );
-  }
-  
-  String _formatTarih(String tarih) {
-    try {
-      if (tarih.contains('T')) {
-        final date = DateTime.parse(tarih);
-        return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
-      }
-      return tarih;
-    } catch (e) {
-      return tarih;
-    }
   }
   
   Widget _buildParametrelerForm() {
@@ -609,111 +664,26 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
     );
   }
   
-  Widget _buildTestDataTable() {
-    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
-      return const SizedBox.shrink();
-    }
-    
-    List<Olcum> secilenOlcumler = _testGruplari[_secilenTestId]!;
-    
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Test Verileri',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0288D1),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('Ölçüm')),
-                  DataColumn(label: Text('Yük (kg)')),
-                  DataColumn(label: Text('5m (s)')),
-                  DataColumn(label: Text('10m (s)')),
-                  DataColumn(label: Text('15m (s)')),
-                  DataColumn(label: Text('20m (s)')),
-                  DataColumn(label: Text('Max Hız (m/s)')),
-                ],
-                rows: secilenOlcumler.map((olcum) {
-                  // Yük bilgisini al
-                  double yukDegeri = 0.0;
-                  switch (olcum.olcumSirasi) {
-                    case 1: yukDegeri = 0; break;
-                    case 2: yukDegeri = 25; break;
-                    case 3: yukDegeri = 50; break;
-                    case 4: yukDegeri = 75; break;
-                    case 5: yukDegeri = 100; break;
-                    default: yukDegeri = olcum.olcumSirasi * 25.0; break;
-                  }
-                  
-                  // Kapı zamanlarını al
-                  List<double> times = [];
-                  for (int j = 1; j <= 4; j++) {
-                    var kapiDeger = olcum.degerler.firstWhere(
-                      (d) => d.degerTuru.toUpperCase() == 'KAPI$j',
-                      orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
-                    );
-                    times.add(kapiDeger.deger);
-                  }
-                  
-                  // Maksimal hızı hesapla
-                  double maxVel = 0.0;
-                  if (times.isNotEmpty && times[0] > 0) {
-                    List<double> velocities = [5.0 / times[0]];
-                    for (int i = 1; i < times.length; i++) {
-                      if (times[i] > times[i-1]) {
-                        velocities.add(5.0 / (times[i] - times[i-1]));
-                      }
-                    }
-                    maxVel = velocities.reduce(math.max);
-                  }
-                  
-                  return DataRow(
-                    cells: [
-                      DataCell(Text('${olcum.olcumSirasi}')),
-                      DataCell(Text(yukDegeri.toStringAsFixed(0))),
-                      DataCell(Text(times.isNotEmpty && times[0] > 0 ? times[0].toStringAsFixed(3) : '-')),
-                      DataCell(Text(times.length > 1 && times[1] > 0 ? times[1].toStringAsFixed(3) : '-')),
-                      DataCell(Text(times.length > 2 && times[2] > 0 ? times[2].toStringAsFixed(3) : '-')),
-                      DataCell(Text(times.length > 3 && times[3] > 0 ? times[3].toStringAsFixed(3) : '-')),
-                      DataCell(Text(maxVel > 0 ? maxVel.toStringAsFixed(2) : '-')),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
   Widget _buildHesaplaButton() {
+    final bool canCalculate = _secilenOlcumler.length >= 2;
+    
     return SizedBox(
       width: double.infinity,
       height: 50,
       child: ElevatedButton(
-        onPressed: _calculateLoadVelocityProfile,
+        onPressed: canCalculate ? _calculateLoadVelocityProfile : null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0288D1),
+          backgroundColor: canCalculate ? const Color(0xFF0288D1) : Colors.grey,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        child: const Text(
-          'Load-Velocity Profili Hesapla',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        child: Text(
+          canCalculate 
+              ? 'Load-Velocity Profili Hesapla (${_secilenOlcumler.length} ölçüm)'
+              : 'En az 2 ölçüm seçin',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -749,7 +719,7 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
                 _buildResultCard('Sprint 1RM (kg)', _l0, _getL0Color(_l0)),
                 _buildResultCard('R²', _rSquared, _getR2Color(_rSquared)),
                 _buildResultCard('Max Hız (m/s)', _maxVelocity, _getMaxVelColor(_maxVelocity)),
-                _buildResultCard('Test Sayısı', _testLoads.length.toDouble(), Colors.blue.withAlpha(70)),
+                _buildResultCard('Ölçüm Sayısı', _secilenOlcumler.length.toDouble(), Colors.blue.withAlpha(70)),
               ],
             ),
           ],
@@ -1022,7 +992,7 @@ class _LoadVelocityProfileScreenState extends State<LoadVelocityProfileScreen> {
                   Color rowColor = _getCategoryColor(category);
                   
                   return DataRow(
-                    color: WidgetStateProperty.all(rowColor),
+                    color: MaterialStateProperty.all(rowColor),
                     cells: [
                       DataCell(Text('${vDecPercent.toStringAsFixed(0)}%')),
                       DataCell(Text(values['targetVelocity']?.toStringAsFixed(2) ?? '-')),

@@ -1,5 +1,3 @@
-// services/performance_analysis_service.dart
-
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import '../models/olcum_model.dart';
@@ -8,12 +6,15 @@ import 'database_service.dart';
 
 class PerformanceAnalysisService {
   final DatabaseService _databaseService = DatabaseService();
-  
+
+  /// Temel performans verilerini sporcu ID'si, ölçüm türü ve değer türüne göre getirir.
   Future<Map<String, dynamic>> getPerformanceSummary({
     required int sporcuId,
     required String olcumTuru,
     required String degerTuru,
-    int lastNDays = 90,
+    int? lastNDays,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
     try {
       // Temel performans verilerini al
@@ -21,16 +22,18 @@ class PerformanceAnalysisService {
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
-        lastNDays: lastNDays,
+        lastNDays: lastNDays ?? 90, // Varsayılan 90 gün
+        startDate: startDate,
+        endDate: endDate,
       );
-      
+
       if (performances.isEmpty) {
         return {'error': 'Yeterli veri bulunamadı'};
       }
-      
+
       final values = performances.map((p) => p['value'] as double).toList();
       final dates = performances.map((p) => p['date'] as String).toList();
-      
+
       // Temel istatistikler
       final mean = StatisticsHelper.calculateMean(values);
       final stdDev = StatisticsHelper.calculateStandardDeviation(values);
@@ -39,36 +42,36 @@ class PerformanceAnalysisService {
       final max = values.reduce(math.max);
       final range = max - min;
       final median = StatisticsHelper.calculateMedian(values);
-      
+
       // Gelişmiş analizler
       final typicalityIndex = StatisticsHelper.calculateTypicalityIndex(values);
       final momentum = StatisticsHelper.calculateMomentum(values);
       final trendAnalysis = StatisticsHelper.analyzePerformanceTrend(values);
       final zScores = StatisticsHelper.calculateZScores(values);
-      
+
       // SWC hesaplaması - Düzeltilmiş
       final swc = await _calculateSWCWithPopulationData(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
       );
-      
+       
       // MDC hesaplaması - Düzeltilmiş
       final mdc = await _calculateMDCFromDatabase(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
       );
-      
+
       // Test güvenilirlik verilerini al
       Map<String, dynamic> reliability = await _getTestReliability(
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
       );
-      
+
       // Performans sınıflandırması
       final performanceClass = StatisticsHelper.classifyPerformance(values.last, values);
-      
+
       // Son performans değişimi
       double recentChange = 0;
       double recentChangePercent = 0;
@@ -76,15 +79,15 @@ class PerformanceAnalysisService {
         recentChange = values.last - values.first;
         recentChangePercent = values.first != 0 ? (recentChange / values.first) * 100 : 0;
       }
-      
+
       // Outlier analizi
       final outliers = StatisticsHelper.detectOutliers(values);
-      
+
       // Çeyreklik değerler
       final q25 = StatisticsHelper.calculatePercentile(values, 25);
       final q75 = StatisticsHelper.calculatePercentile(values, 75);
       final iqr = q75 - q25;
-      
+
       // Performans trendi
       String performanceTrend = 'Kararlı';
       if (values.length >= 6) {
@@ -93,14 +96,14 @@ class PerformanceAnalysisService {
         final recentMean = StatisticsHelper.calculateMean(recent3);
         final previousMean = StatisticsHelper.calculateMean(previous3);
         final changePercent = previousMean != 0 ? ((recentMean - previousMean) / previousMean) * 100 : 0;
-        
+
         if (changePercent > 2) {
           performanceTrend = 'Yükseliş';
         } else if (changePercent < -2) {
           performanceTrend = 'Düşüş';
         }
       }
-      
+
       return {
         // Temel istatistikler
         'mean': mean,
@@ -114,7 +117,7 @@ class PerformanceAnalysisService {
         'q25': q25,
         'q75': q75,
         'iqr': iqr,
-        
+
         // Gelişmiş analizler
         'typicalityIndex': typicalityIndex,
         'momentum': momentum,
@@ -123,12 +126,12 @@ class PerformanceAnalysisService {
         'trendRSquared': trendAnalysis['r_squared'],
         'trendStrength': trendAnalysis['trend_strength'],
         'zScores': zScores,
-        
+
         // Güvenilirlik metrikleri
         'swc': swc,
         'mdc': mdc,
         'reliability': reliability,
-        
+
         // Performans değerlendirme
         'performanceClass': performanceClass,
         'performanceTrend': performanceTrend,
@@ -136,7 +139,7 @@ class PerformanceAnalysisService {
         'recentChangePercent': recentChangePercent,
         'outliers': outliers,
         'outliersCount': outliers.length,
-        
+
         // Ham veriler
         'performanceValues': values,
         'dates': dates,
@@ -146,35 +149,44 @@ class PerformanceAnalysisService {
       return {'error': 'Analiz sırasında hata: $e'};
     }
   }
-  
+
   Future<List<Map<String, dynamic>>> _getPerformanceData({
     required int sporcuId,
     required String olcumTuru,
     required String degerTuru,
-    required int lastNDays,
+    int? lastNDays,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
-    final cutoffDate = DateTime.now().subtract(Duration(days: lastNDays));
     final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-    
+
     final filteredOlcumler = olcumler.where((olcum) {
       try {
         final olcumDate = DateTime.parse(olcum.olcumTarihi);
-        return olcumDate.isAfter(cutoffDate) && 
+        // Özel tarih aralığı varsa
+        if (startDate != null && endDate != null) {
+          return olcumDate.isAfter(startDate.subtract(const Duration(seconds: 1))) &&
+                 olcumDate.isBefore(endDate.add(const Duration(seconds: 1))) &&
+                 olcum.olcumTuru.toLowerCase() == olcumTuru.toLowerCase();
+        }
+        // Varsayılan son N gün filtresi
+        final cutoffDate = DateTime.now().subtract(Duration(days: lastNDays ?? 90));
+        return olcumDate.isAfter(cutoffDate) &&
                olcum.olcumTuru.toLowerCase() == olcumTuru.toLowerCase();
       } catch (e) {
         return false;
       }
     }).toList();
-    
+
     final performances = <Map<String, dynamic>>[];
-    
+
     for (final olcum in filteredOlcumler) {
       // Değer türü eşleştirmesi (case-insensitive)
       final deger = olcum.degerler.firstWhere(
         (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
         orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
       );
-      
+
       if (deger.deger > 0) {
         performances.add({
           'value': deger.deger,
@@ -184,13 +196,13 @@ class PerformanceAnalysisService {
         });
       }
     }
-    
+
     // Tarihe göre sırala
     performances.sort((a, b) => a['date'].compareTo(b['date']));
-    
+
     return performances;
   }
-  
+
   /// Test güvenilirlik verilerini al
   Future<Map<String, dynamic>> _getTestReliability({
     required String olcumTuru,
@@ -198,7 +210,7 @@ class PerformanceAnalysisService {
   }) async {
     // Bu metodun gerçek implementasyonu veritabanına bağlı
     // Şimdilik varsayılan değerler döndürüyoruz
-    
+
     Map<String, double> defaultReliability = {
       'CMJ': 0.95,
       'SJ': 0.93,
@@ -206,9 +218,9 @@ class PerformanceAnalysisService {
       'RJ': 0.82,
       'SPRINT': 0.98,
     };
-    
+
     final reliability = defaultReliability[olcumTuru.toUpperCase()] ?? 0.90;
-    
+
     return {
       'test_retest_reliability': reliability,
       'icc': reliability,
@@ -216,69 +228,157 @@ class PerformanceAnalysisService {
       'source': 'Varsayılan değer',
     };
   }
-  
-  /// MDC hesaplaması - Düzeltilmiş metod
-  Future<double> _calculateMDCFromDatabase({
-    required int sporcuId,
-    required String olcumTuru,
-    required String degerTuru,
-  }) async {
-    try {
-      // Aynı gün içinde yapılan test-retest ölçümlerini bul
-      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-      
-      Map<String, List<double>> dailyMeasurements = {};
-      
-      for (final olcum in olcumler) {
-        if (olcum.olcumTuru.toLowerCase() != olcumTuru.toLowerCase()) continue;
-        
-        final date = olcum.olcumTarihi.split('T')[0]; // Sadece tarih kısmı
-        final deger = olcum.degerler.firstWhere(
-          (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
-          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
-        );
-        
-        if (deger.deger > 0) {
-          dailyMeasurements.putIfAbsent(date, () => []);
-          dailyMeasurements[date]!.add(deger.deger);
-        }
-      }
-      
-      // Test-retest çiftlerini oluştur
-      List<double> testRetestData = [];
-      for (final measurements in dailyMeasurements.values) {
-        if (measurements.length >= 2) {
-          // Aynı gün içindeki ilk iki ölçümü test-retest olarak kullan
-          testRetestData.add(measurements[0]);
-          testRetestData.add(measurements[1]);
-        }
-      }
-      
-      if (testRetestData.length >= 4) {
-        return StatisticsHelper.calculateMDC(testRetestData);
-      }
-      
-      return 0.0;
-    } catch (e) {
-      debugPrint('MDC hesaplama hatası: $e');
-      return 0.0;
-    }
-  }
-  
-  /// SWC hesaplaması - Populasyon verisi ile
+
+  /// SWC hesaplaması - Düzeltilmiş populasyon temelli metod
   Future<double> _calculateSWCWithPopulationData({
     required int sporcuId,
     required String olcumTuru,
     required String degerTuru,
   }) async {
     try {
-      // Tüm sporcuların verilerini al (populasyon verisi)
-      final allSporcular = await _databaseService.getAllSporcular();
-      List<double> populationData = [];
+      // Önce popülasyon verisi toplamaya çalış
+      final populationSWC = await _calculatePopulationBasedSWC(
+        sporcuId: sporcuId,
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+      );
       
-      for (final sporcu in allSporcular) {
-        if (sporcu.id == sporcuId) continue; // Kendisini hariç tut
+      if (populationSWC > 0) {
+        debugPrint('Popülasyon temelli SWC hesaplandı: $populationSWC');
+        return populationSWC;
+      }
+      
+      // Popülasyon verisi yetersizse grup normlarını kullan
+      final groupNormSWC = await _calculateGroupNormSWC(
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        referenceSporcuId: sporcuId,
+      );
+      
+      if (groupNormSWC > 0) {
+        debugPrint('Grup norm temelli SWC hesaplandı: $groupNormSWC');
+        return groupNormSWC;
+      }
+      
+      // Son çare: literatür temelli SWC
+      final literatureSWC = await _calculateLiteratureBasedSWC(
+        olcumTuru: olcumTuru,
+        degerTuru: degerTuru,
+        sporcuId: sporcuId,
+      );
+      
+      debugPrint('Literatür temelli SWC hesaplandı: $literatureSWC');
+      return literatureSWC;
+      
+    } catch (e) {
+      debugPrint('SWC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+
+  /// Gerçek popülasyon verisi ile SWC hesapla
+  Future<double> _calculatePopulationBasedSWC({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+  }) async {
+    try {
+      // Tüm sporcuları al (hedef sporcu hariç)
+      final allSporcular = await _databaseService.getAllSporcular();
+      final otherSporcular = allSporcular.where((s) => s.id != sporcuId).toList();
+      
+      if (otherSporcular.length < 8) {
+        debugPrint('Popülasyon SWC için yetersiz sporcu sayısı: ${otherSporcular.length}');
+        return 0.0;
+      }
+      
+      // Her sporcunun en iyi performansını al (son 6 ay)
+      List<double> populationBestValues = [];
+      List<double> populationMeanValues = [];
+      
+      for (final sporcu in otherSporcular) {
+        final performances = await _getPerformanceData(
+          sporcuId: sporcu.id!,
+          olcumTuru: olcumTuru,
+          degerTuru: degerTuru,
+          lastNDays: 180, // Son 6 ay
+        );
         
+        if (performances.length >= 3) {
+          final values = performances.map((p) => p['value'] as double).toList();
+          
+          // En iyi performans (test türüne göre max veya min)
+          final bestValue = _getBestPerformance(values, olcumTuru, degerTuru);
+          populationBestValues.add(bestValue);
+          
+          // Ortalama performans
+          populationMeanValues.add(StatisticsHelper.calculateMean(values));
+        }
+      }
+      
+      if (populationBestValues.length >= 8) {
+        // Hopkins metodolojisi: %0.2 × between-athlete SD (en iyi performanslar)
+        final swcBest = StatisticsHelper.calculateSWCForTestType(
+          populationData: populationBestValues,
+          testType: olcumTuru,
+          athleteLevel: _determineAthleteLevel(sporcuId),
+        );
+        
+        // Ortalama değerlerden de hesapla (alternatif)
+        final swcMean = StatisticsHelper.calculateSWCForTestType(
+          populationData: populationMeanValues,
+          testType: olcumTuru,
+          athleteLevel: _determineAthleteLevel(sporcuId),
+        );
+        
+        // İkisinin ortalamasını al (daha konservatif yaklaşım)
+        final finalSWC = (swcBest + swcMean) / 2;
+        
+        debugPrint('Popülasyon SWC - Best: $swcBest, Mean: $swcMean, Final: $finalSWC');
+        return finalSWC;
+      }
+      
+      return 0.0;
+    } catch (e) {
+      debugPrint('Popülasyon SWC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+
+  /// Grup norm temelli SWC hesapla (benzer özellikli sporcular)
+  Future<double> _calculateGroupNormSWC({
+    required String olcumTuru,
+    required String degerTuru,
+    required int referenceSporcuId,
+  }) async {
+    try {
+      // Referans sporcunun özelliklerini al
+      final referenceSporcu = await _databaseService.getSporcu(referenceSporcuId);
+      
+      // Benzer özellikteki sporcuları bul
+      final allSporcular = await _databaseService.getAllSporcular();
+      final similarSporcular = allSporcular.where((sporcu) {
+        if (sporcu.id == referenceSporcuId) return false;
+        
+        // Yaş kriteri (±3 yaş)
+        final ageDiff = (sporcu.yas - referenceSporcu.yas).abs();
+        if (ageDiff > 3) return false;
+        
+        // Cinsiyet kriteri
+        if (sporcu.cinsiyet != referenceSporcu.cinsiyet) return false;
+        
+        return true;
+      }).toList();
+      
+      if (similarSporcular.length < 5) {
+        debugPrint('Grup norm SWC için yetersiz benzer sporcu: ${similarSporcular.length}');
+        return 0.0;
+      }
+      
+      // Benzer sporcuların performanslarını topla
+      List<double> groupPerformances = [];
+      
+      for (final sporcu in similarSporcular) {
         final performances = await _getPerformanceData(
           sporcuId: sporcu.id!,
           olcumTuru: olcumTuru,
@@ -286,42 +386,401 @@ class PerformanceAnalysisService {
           lastNDays: 365, // Son 1 yıl
         );
         
-        if (performances.isNotEmpty) {
-          // Her sporcunun ortalamasını al
+        if (performances.length >= 2) {
           final values = performances.map((p) => p['value'] as double).toList();
-          populationData.add(StatisticsHelper.calculateMean(values));
+          // Her sporcunun ortalamasını al
+          groupPerformances.add(StatisticsHelper.calculateMean(values));
         }
       }
       
-      if (populationData.length >= 5) {
-        // Test türüne özel SWC hesapla
+      if (groupPerformances.length >= 5) {
         return StatisticsHelper.calculateSWCForTestType(
-          populationData: populationData,
+          populationData: groupPerformances,
           testType: olcumTuru,
-          athleteLevel: 'trained', // Bu bilgiyi sporcu modelinden alabilirsiniz
+          athleteLevel: _determineAthleteLevel(referenceSporcuId),
         );
       }
       
-      // Populasyon verisi yoksa sporcunun kendi verilerini kullan
-      final ownData = await _getPerformanceData(
+      return 0.0;
+    } catch (e) {
+      debugPrint('Grup norm SWC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+
+  /// Literatür temelli SWC hesapla
+  Future<double> _calculateLiteratureBasedSWC({
+    required String olcumTuru,
+    required String degerTuru,
+    required int sporcuId,
+  }) async {
+    try {
+      // Sporcunun kendi verilerinden baseline hesapla
+      final performances = await _getPerformanceData(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: degerTuru,
         lastNDays: 365,
       );
       
-      if (ownData.isNotEmpty) {
-        final values = ownData.map((p) => p['value'] as double).toList();
-        return StatisticsHelper.calculateSWC(betweenAthleteData: values);
+      if (performances.isEmpty) return 0.0;
+      
+      final values = performances.map((p) => p['value'] as double).toList();
+      final meanValue = StatisticsHelper.calculateMean(values);
+      
+      // Test türüne göre literatür temelli SWC yüzdeleri
+      Map<String, double> literatureSWCPercent = {
+        // CMJ (Countermovement Jump)
+        'CMJ_YUKSEKLIK': 1.8,     // %1.8 (Hopkins vd., 2009)
+        'CMJ_UCUSSURESI': 1.5,
+        'CMJ_GUC': 2.1,
+        
+        // SJ (Squat Jump)
+        'SJ_YUKSEKLIK': 2.0,      // %2.0 (Turner vd., 2015)
+        'SJ_UCUSSURESI': 1.7,
+        'SJ_GUC': 2.3,
+        
+        // DJ (Drop Jump)
+        'DJ_YUKSEKLIK': 2.2,      // %2.2 (Gathercole vd., 2015)
+        'DJ_RSI': 6.5,            // RSI daha yüksek varyabilite
+        'DJ_TEMASSURESI': 4.1,
+        'DJ_UCUSSURESI': 1.9,
+        'DJ_GUC': 2.5,
+        
+        // RJ (Repeated Jump)
+        'RJ_YUKSEKLIK': 2.8,      // %2.8 (Claudino vd., 2017)
+        'RJ_RSI': 8.2,
+        'RJ_RITIM': 3.5,
+        'RJ_TEMASSURESI': 5.1,
+        'RJ_UCUSSURESI': 2.4,
+        'RJ_GUC': 3.1,
+        
+        // Sprint
+        'SPRINT_KAPI1': 0.8,      // %0.8 (Hopkins vd., 2009)
+        'SPRINT_KAPI2': 0.7,
+        'SPRINT_KAPI3': 0.6,
+        'SPRINT_KAPI4': 0.5,
+        'SPRINT_KAPI5': 0.4,
+        'SPRINT_KAPI6': 0.4,
+        'SPRINT_KAPI7': 0.3,
+      };
+      
+      final key = '${olcumTuru.toUpperCase()}_${degerTuru.toUpperCase()}';
+      final swcPercent = literatureSWCPercent[key] ?? 2.0; // %2.0 varsayılan
+      
+      // Sporcu seviyesine göre düzeltme faktörü
+      final athleteLevel = _determineAthleteLevel(sporcuId);
+      double levelMultiplier = 1.0;
+      
+      switch (athleteLevel) {
+        case 'elite':
+          levelMultiplier = 0.7; // Elite sporcularda daha küçük değişimler anlamlı
+          break;
+        case 'trained':
+          levelMultiplier = 1.0; // Standart
+          break;
+        case 'recreational':
+          levelMultiplier = 1.3; // Rekreasyonel sporcularda daha büyük değişimler gerekli
+          break;
+      }
+      
+      final literatureSWC = meanValue * (swcPercent / 100) * levelMultiplier;
+      
+      debugPrint('Literatür SWC - Test: $key, Yüzde: $swcPercent%, Seviye: $athleteLevel, Sonuç: $literatureSWC');
+      return literatureSWC;
+      
+    } catch (e) {
+      debugPrint('Literatür SWC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+
+  /// En iyi performansı belirle (test türüne göre max veya min)
+  double _getBestPerformance(List<double> values, String olcumTuru, String degerTuru) {
+    if (values.isEmpty) return 0.0;
+    
+    // Düşük değerler daha iyi olan metrikler
+    final lowerIsBetter = [
+      'temassuresi', 'kapi1', 'kapi2', 'kapi3', 'kapi4', 'kapi5', 'kapi6', 'kapi7'
+    ];
+    
+    final isLowerBetter = lowerIsBetter.any((metric) => 
+      degerTuru.toLowerCase().contains(metric));
+    
+    return isLowerBetter ? values.reduce(math.min) : values.reduce(math.max);
+  }
+
+  /// Sporcu seviyesini belirle (basit algoritma)
+  String _determineAthleteLevel(int sporcuId) {
+    // Bu metod daha karmaşık hale getirilebilir
+    // Şimdilik basit bir yaklaşım kullanıyoruz
+    
+    // Sporcu yaşına ve test sayısına göre basit sınıflandırma
+    // Gerçek uygulamada daha sofistike kriterler kullanılabilir
+    
+    return 'trained'; // Varsayılan olarak 'trained' seviye
+    
+    // Gelecekte eklenebilecek kriterler:
+    // - Sporcu yaşı ve deneyimi
+    // - Performans seviyeleri
+    // - Test sayısı ve düzenliliği
+    // - Spor dalı ve rekabet seviyesi
+  }
+
+  /// MDC hesaplaması - Düzeltilmiş metod
+  Future<double> _calculateMDCFromDatabase({
+    required int sporcuId,
+    required String olcumTuru,
+    required String degerTuru,
+  }) async {
+    try {
+      // Tüm ölçümleri al ve tarihe göre sırala
+      final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+      
+      // İlgili test türündeki ölçümleri filtrele
+      final filteredOlcumler = olcumler.where((olcum) {
+        return olcum.olcumTuru.toLowerCase() == olcumTuru.toLowerCase();
+      }).toList();
+      
+      if (filteredOlcumler.length < 4) {
+        debugPrint('MDC hesaplama için yetersiz veri: ${filteredOlcumler.length} ölçüm');
+        return 0.0;
+      }
+      
+      // Tarihe göre sırala
+      filteredOlcumler.sort((a, b) => a.olcumTarihi.compareTo(b.olcumTarihi));
+      
+      // Test-retest çiftlerini bul (3 farklı yöntemle)
+      List<double> testRetestPairs = [];
+      
+      // Yöntem 1: Aynı gün içindeki multiple ölçümler
+      testRetestPairs.addAll(_findSameDayPairs(filteredOlcumler, degerTuru));
+      
+      // Yöntem 2: Ardışık günlerdeki ölçümler (1-3 gün arası)
+      if (testRetestPairs.length < 4) {
+        testRetestPairs.addAll(_findConsecutiveDayPairs(filteredOlcumler, degerTuru));
+      }
+      
+      // Yöntem 3: En yakın ölçümler (maksimum 7 gün arası)
+      if (testRetestPairs.length < 4) {
+        testRetestPairs.addAll(_findNearestMeasurements(filteredOlcumler, degerTuru));
+      }
+      
+      // Yöntem 4: Son çare - aynı test koşullarındaki ölçümler
+      if (testRetestPairs.length < 4) {
+        testRetestPairs.addAll(_findSimilarConditionPairs(filteredOlcumler, degerTuru));
+      }
+      
+      debugPrint('MDC hesaplama - Bulunan test-retest çift sayısı: ${testRetestPairs.length ~/ 2}');
+      
+      if (testRetestPairs.length >= 4) {
+        final mdc = StatisticsHelper.calculateMDC(testRetestPairs);
+        debugPrint('Hesaplanan MDC: $mdc');
+        return mdc;
+      }
+      
+      // Eğer hala yeterli veri yoksa, popülasyon temelli tahmini MDC hesapla
+      return _estimateMDCFromPopulation(olcumTuru, degerTuru, filteredOlcumler);
+      
+    } catch (e) {
+      debugPrint('MDC hesaplama hatası: $e');
+      return 0.0;
+    }
+  }
+
+  /// Aynı gün içindeki multiple ölçümleri bul
+  List<double> _findSameDayPairs(List<Olcum> olcumler, String degerTuru) {
+    List<double> pairs = [];
+    Map<String, List<double>> dailyMeasurements = {};
+    
+    for (final olcum in olcumler) {
+      final date = olcum.olcumTarihi.split('T')[0]; // Sadece tarih kısmı
+      final deger = olcum.degerler.firstWhere(
+        (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+        orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+      );
+      
+      if (deger.deger > 0) {
+        dailyMeasurements.putIfAbsent(date, () => []);
+        dailyMeasurements[date]!.add(deger.deger);
+      }
+    }
+    
+    // Aynı gün içinde 2+ ölçüm olan günleri işle
+    for (final measurements in dailyMeasurements.values) {
+      if (measurements.length >= 2) {
+        // Tüm kombinasyonları test-retest çifti olarak kullan
+        for (int i = 0; i < measurements.length - 1; i++) {
+          pairs.add(measurements[i]);
+          pairs.add(measurements[i + 1]);
+        }
+      }
+    }
+    
+    return pairs;
+  }
+
+  /// Ardışık günlerdeki ölçümleri bul (1-3 gün arası)
+  List<double> _findConsecutiveDayPairs(List<Olcum> olcumler, String degerTuru) {
+    List<double> pairs = [];
+    
+    for (int i = 0; i < olcumler.length - 1; i++) {
+      try {
+        final date1 = DateTime.parse(olcumler[i].olcumTarihi);
+        final date2 = DateTime.parse(olcumler[i + 1].olcumTarihi);
+        final daysDiff = date2.difference(date1).inDays;
+        
+        // 1-3 gün arasındaki ölçümler
+        if (daysDiff >= 1 && daysDiff <= 3) {
+          final deger1 = olcumler[i].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          final deger2 = olcumler[i + 1].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          if (deger1.deger > 0 && deger2.deger > 0) {
+            pairs.add(deger1.deger);
+            pairs.add(deger2.deger);
+          }
+        }
+      } catch (e) {
+        continue; // Tarih parse hatası durumunda devam et
+      }
+    }
+    
+    return pairs;
+  }
+
+  /// En yakın ölçümleri bul (maksimum 7 gün arası)
+  List<double> _findNearestMeasurements(List<Olcum> olcumler, String degerTuru) {
+    List<double> pairs = [];
+    
+    for (int i = 0; i < olcumler.length - 1; i++) {
+      try {
+        final date1 = DateTime.parse(olcumler[i].olcumTarihi);
+        final date2 = DateTime.parse(olcumler[i + 1].olcumTarihi);
+        final daysDiff = date2.difference(date1).inDays;
+        
+        // 4-7 gün arasındaki ölçümler (daha önceki yöntemlerle bulunamayanlar)
+        if (daysDiff >= 4 && daysDiff <= 7) {
+          final deger1 = olcumler[i].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          final deger2 = olcumler[i + 1].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          if (deger1.deger > 0 && deger2.deger > 0) {
+            pairs.add(deger1.deger);
+            pairs.add(deger2.deger);
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    return pairs;
+  }
+
+  /// Benzer test koşullarındaki ölçümleri bul
+  List<double> _findSimilarConditionPairs(List<Olcum> olcumler, String degerTuru) {
+    List<double> pairs = [];
+    
+    // Test ID'si aynı olan ölçümleri grupla (aynı test session'ı)
+    Map<int?, List<Olcum>> testGroups = {};
+    
+    for (final olcum in olcumler) {
+      testGroups.putIfAbsent(olcum.testId, () => []);
+      testGroups[olcum.testId]!.add(olcum);
+    }
+    
+    // Her test grubu içindeki ölçümleri çiftler halinde kullan
+    for (final group in testGroups.values) {
+      if (group.length >= 2) {
+        for (int i = 0; i < group.length - 1; i++) {
+          final deger1 = group[i].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          final deger2 = group[i + 1].degerler.firstWhere(
+            (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+          );
+          
+          if (deger1.deger > 0 && deger2.deger > 0) {
+            pairs.add(deger1.deger);
+            pairs.add(deger2.deger);
+          }
+        }
+      }
+    }
+    
+    return pairs;
+  }
+
+  /// Popülasyon temelli MDC tahmini
+  Future<double> _estimateMDCFromPopulation(String olcumTuru, String degerTuru, List<Olcum> athleteData) async {
+    try {
+      // Test türüne göre literatür temelli MDC değerleri (yüzde olarak)
+      Map<String, double> literatureMDCPercent = {
+        'CMJ_YUKSEKLIK': 5.5,     // %5.5 tipik MDC
+        'CMJ_UCUSSURESI': 4.8,
+        'CMJ_GUC': 8.2,
+        'SJ_YUKSEKLIK': 6.1,
+        'SJ_UCUSSURESI': 5.2,
+        'SJ_GUC': 9.1,
+        'DJ_YUKSEKLIK': 7.3,
+        'DJ_RSI': 12.5,
+        'RJ_YUKSEKLIK': 8.9,
+        'RJ_RSI': 15.2,
+        'SPRINT_KAPI1': 2.1,
+        'SPRINT_KAPI2': 1.8,
+        'SPRINT_KAPI3': 1.6,
+        'SPRINT_KAPI4': 1.5,
+        'SPRINT_KAPI5': 1.4,
+        'SPRINT_KAPI6': 1.3,
+        'SPRINT_KAPI7': 1.2,
+      };
+      
+      final key = '${olcumTuru.toUpperCase()}_${degerTuru.toUpperCase()}';
+      final mdcPercent = literatureMDCPercent[key] ?? 7.0; // %7 varsayılan
+      
+      // Sporcunun kendi verilerinden ortalama hesapla
+      List<double> values = [];
+      for (final olcum in athleteData) {
+        final deger = olcum.degerler.firstWhere(
+          (d) => d.degerTuru.toLowerCase() == degerTuru.toLowerCase(),
+          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+        );
+        if (deger.deger > 0) {
+          values.add(deger.deger);
+        }
+      }
+      
+      if (values.isNotEmpty) {
+        final mean = StatisticsHelper.calculateMean(values);
+        final estimatedMDC = mean * (mdcPercent / 100);
+        
+        debugPrint('Tahmini MDC hesaplandı: $estimatedMDC (Ortalama: $mean, %$mdcPercent)');
+        return estimatedMDC;
       }
       
       return 0.0;
     } catch (e) {
-      debugPrint('SWC hesaplama hatası: $e');
+      debugPrint('Tahmini MDC hesaplama hatası: $e');
       return 0.0;
     }
   }
-  
+
   /// Detaylı performans raporu
   Future<Map<String, dynamic>> getDetailedPerformanceReport({
     required int sporcuId,
@@ -329,21 +788,20 @@ class PerformanceAnalysisService {
     required String degerTuru,
     int lastNDays = 90,
   }) async {
-    
     final basicSummary = await getPerformanceSummary(
       sporcuId: sporcuId,
       olcumTuru: olcumTuru,
       degerTuru: degerTuru,
       lastNDays: lastNDays,
     );
-    
+
     if (basicSummary.containsKey('error')) {
       return basicSummary;
     }
-    
+
     final values = List<double>.from(basicSummary['performanceValues']);
     final dates = List<String>.from(basicSummary['dates']);
-    
+
     // Ek analizler
     final intraIndividualCV = StatisticsHelper.calculateIntraIndividualCV(values);
     final percentiles = {
@@ -354,16 +812,16 @@ class PerformanceAnalysisService {
       '90th': StatisticsHelper.calculatePercentile(values, 90),
       '95th': StatisticsHelper.calculatePercentile(values, 95),
     };
-    
+
     // Moving averages
     final movingAverage3 = StatisticsHelper.calculateMovingAverage(values, 3);
     final movingAverage5 = StatisticsHelper.calculateMovingAverage(values, 5);
     final exponentialMA = StatisticsHelper.calculateExponentialMovingAverage(values, 0.3);
-    
+
     // Normalize edilmiş veriler
     final normalizedData = StatisticsHelper.normalizeData(values);
     final standardizedData = StatisticsHelper.standardizeData(values);
-    
+
     // İlerleme analizi (eğer tarihler mevcut ise)
     Map<String, dynamic> progressAnalysis = {};
     if (dates.isNotEmpty) {
@@ -380,19 +838,19 @@ class PerformanceAnalysisService {
         progressAnalysis = {'error': 'Tarih analizi hatası: $e'};
       }
     }
-    
+
     // RSI analizi (eğer sıçrama testi ise)
     Map<String, dynamic> rsiAnalysis = {};
     if (['CMJ', 'SJ', 'DJ', 'RJ'].contains(olcumTuru.toUpperCase())) {
       rsiAnalysis = await _calculateRSIAnalysis(sporcuId, olcumTuru, lastNDays);
     }
-    
+
     // Sprint analizi (eğer sprint testi ise)
     Map<String, dynamic> sprintAnalysis = {};
     if (olcumTuru.toUpperCase() == 'SPRINT') {
       sprintAnalysis = await _calculateSprintAnalysis(sporcuId, lastNDays);
     }
-    
+
     return {
       ...basicSummary,
       'intraIndividualCV': intraIndividualCV,
@@ -407,7 +865,7 @@ class PerformanceAnalysisService {
       'sprintAnalysis': sprintAnalysis,
     };
   }
-  
+
   /// RSI analizi
   Future<Map<String, dynamic>> _calculateRSIAnalysis(int sporcuId, String olcumTuru, int lastNDays) async {
     try {
@@ -418,21 +876,21 @@ class PerformanceAnalysisService {
         degerTuru: 'ucussuresi',
         lastNDays: lastNDays,
       );
-      
+
       final contactTimeData = await _getPerformanceData(
         sporcuId: sporcuId,
         olcumTuru: olcumTuru,
         degerTuru: 'temassuresi',
         lastNDays: lastNDays,
       );
-      
+
       if (flightTimeData.isEmpty || contactTimeData.isEmpty) {
         return {'error': 'RSI hesaplama için yeterli veri yok'};
       }
-      
+
       final flightTimes = flightTimeData.map((d) => d['value'] as double).toList();
       final contactTimes = contactTimeData.map((d) => d['value'] as double).toList();
-      
+
       // RSI hesaplamaları
       if (olcumTuru.toUpperCase() == 'RJ' && flightTimes.length == contactTimes.length) {
         return StatisticsHelper.calculateRepeatedJumpRSI(
@@ -443,48 +901,48 @@ class PerformanceAnalysisService {
         // Tek sıçrama RSI
         final avgFlightTime = StatisticsHelper.calculateMean(flightTimes);
         final avgContactTime = StatisticsHelper.calculateMean(contactTimes);
-        
+
         final rsi = StatisticsHelper.calculateRSIFromFlightTime(
           flightTime: avgFlightTime,
           contactTime: avgContactTime,
         );
-        
+
         return {
           'average_rsi': rsi,
           'flight_time_cv': StatisticsHelper.calculateCV(flightTimes),
           'contact_time_cv': StatisticsHelper.calculateCV(contactTimes),
         };
       }
-      
+
       return {'error': 'RSI hesaplama verilerinde uyumsuzluk'};
     } catch (e) {
       return {'error': 'RSI analizi hatası: $e'};
     }
   }
-  
+
   /// Sprint analizi
   Future<Map<String, dynamic>> _calculateSprintAnalysis(int sporcuId, int lastNDays) async {
     try {
       final cutoffDate = DateTime.now().subtract(Duration(days: lastNDays));
       final olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-      
+
       final sprintOlcumler = olcumler.where((olcum) {
         try {
           final olcumDate = DateTime.parse(olcum.olcumTarihi);
-          return olcumDate.isAfter(cutoffDate) && 
+          return olcumDate.isAfter(cutoffDate) &&
                  olcum.olcumTuru.toLowerCase() == 'sprint';
         } catch (e) {
           return false;
         }
       }).toList();
-      
+
       if (sprintOlcumler.isEmpty) {
         return {'error': 'Sprint analizi için veri yok'};
       }
-      
+
       // En son sprint testini analiz et
       final latestSprint = sprintOlcumler.last;
-      
+
       // Kapı değerlerini topla
       Map<int, double> kapiDegerler = {};
       for (final deger in latestSprint.degerler) {
@@ -494,14 +952,14 @@ class PerformanceAnalysisService {
           kapiDegerler[kapiNo] = deger.deger;
         }
       }
-      
+
       if (kapiDegerler.length < 3) {
         return {'error': 'Sprint analizi için yeterli kapı verisi yok'};
       }
-      
+
       // Sprint kinematiği hesapla
       final kinematics = StatisticsHelper.calculateSprintKinematics(kapiDegerler);
-      
+
       return {
         'latest_sprint_analysis': kinematics,
         'gate_count': kapiDegerler.length,
@@ -511,8 +969,8 @@ class PerformanceAnalysisService {
       return {'error': 'Sprint analizi hatası: $e'};
     }
   }
-  
-  /// Sportçu karşılaştırma analizi
+
+  /// Sporcu karşılaştırma analizi
   Future<Map<String, dynamic>> compareAthletes({
     required List<int> sporcuIds,
     required String olcumTuru,
@@ -521,7 +979,7 @@ class PerformanceAnalysisService {
   }) async {
     try {
       Map<int, Map<String, dynamic>> athleteData = {};
-      
+
       for (final sporcuId in sporcuIds) {
         final summary = await getPerformanceSummary(
           sporcuId: sporcuId,
@@ -529,23 +987,23 @@ class PerformanceAnalysisService {
           degerTuru: degerTuru,
           lastNDays: lastNDays,
         );
-        
+
         if (!summary.containsKey('error')) {
           athleteData[sporcuId] = summary;
         }
       }
-      
+
       if (athleteData.isEmpty) {
         return {'error': 'Karşılaştırma için yeterli veri yok'};
       }
-      
+
       // Tüm sporcu değerlerini birleştir
       final allValues = <double>[];
-      athleteData.values.forEach((data) {
+      for (final data in athleteData.values) {
         final values = List<double>.from(data['performanceValues']);
         allValues.addAll(values);
-      });
-      
+      }
+
       // Grup istatistikleri
       final groupStats = {
         'group_mean': StatisticsHelper.calculateMean(allValues),
@@ -553,18 +1011,18 @@ class PerformanceAnalysisService {
         'group_cv': StatisticsHelper.calculateCV(allValues),
         'between_athlete_swc': StatisticsHelper.calculateSWC(betweenAthleteData: allValues),
       };
-      
+
       // Her sporcu için z-score hesapla (gruba göre)
       final groupMean = groupStats['group_mean']!;
       final groupStd = groupStats['group_std']!;
-      
+
       for (final entry in athleteData.entries) {
         final athleteMean = entry.value['mean'];
         final zScore = groupStd > 0 ? (athleteMean - groupMean) / groupStd : 0;
         entry.value['group_z_score'] = zScore;
         entry.value['performance_ranking'] = _rankPerformance(athleteMean, allValues);
       }
-      
+
       return {
         'athlete_data': athleteData,
         'group_statistics': groupStats,
@@ -574,12 +1032,13 @@ class PerformanceAnalysisService {
       return {'error': 'Karşılaştırma analizi hatası: $e'};
     }
   }
-  
+
   /// Performans sıralaması hesapla
   String _rankPerformance(double value, List<double> referenceValues) {
-    final percentile = StatisticsHelper.calculatePercentile(referenceValues, 
-      ((referenceValues.where((v) => v <= value).length / referenceValues.length) * 100));
-    
+    final percentile = StatisticsHelper.calculatePercentile(
+        referenceValues,
+        ((referenceValues.where((v) => v <= value).length / referenceValues.length) * 100));
+
     if (percentile >= 90) return 'En İyi %10';
     if (percentile >= 75) return 'En İyi %25';
     if (percentile >= 50) return 'Ortalama Üstü';

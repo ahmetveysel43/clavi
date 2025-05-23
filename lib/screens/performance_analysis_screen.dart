@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Tarih formatlama için eklendi
 import '../models/sporcu_model.dart';
 import '../services/database_service.dart';
 import '../services/performance_analysis_service.dart';
@@ -47,8 +48,17 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> w
   
   // Zaman aralığı filtresi
   String _selectedTimeRange = 'Son 90 Gün';
-  final List<String> _timeRanges = ['Son 30 Gün', 'Son 90 Gün', 'Son 6 Ay', 'Son 1 Yıl', 'Tümü'];
+  final List<String> _timeRanges = [
+    'Son 30 Gün',
+    'Son 90 Gün',
+    'Son 6 Ay',
+    'Son 1 Yıl',
+    'Tümü',
+    'Özel Tarih Aralığı', // Yeni seçenek eklendi
+  ];
   int _selectedDays = 90;
+  DateTime? _startDate; // Özel tarih aralığı için eklendi
+  DateTime? _endDate; // Özel tarih aralığı için eklendi
 
   @override
   void initState() {
@@ -133,7 +143,9 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> w
         sporcuId: _secilenSporcu!.id!,
         olcumTuru: _secilenOlcumTuru,
         degerTuru: _secilenDegerTuru,
-        lastNDays: _selectedDays,
+        lastNDays: _selectedTimeRange == 'Özel Tarih Aralığı' ? null : _selectedDays, // Özel aralıkta null
+        startDate: _selectedTimeRange == 'Özel Tarih Aralığı' ? _startDate : null, // Özel tarih başlangıcı
+        endDate: _selectedTimeRange == 'Özel Tarih Aralığı' ? _endDate : null, // Özel tarih bitişi
       );
       
     } catch (e) {
@@ -167,18 +179,32 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> w
       switch (value) {
         case 'Son 30 Gün':
           _selectedDays = 30;
+          _startDate = null; // Özel tarih sıfırlanır
+          _endDate = null; // Özel tarih sıfırlanır
           break;
         case 'Son 90 Gün':
           _selectedDays = 90;
+          _startDate = null;
+          _endDate = null;
           break;
         case 'Son 6 Ay':
           _selectedDays = 180;
+          _startDate = null;
+          _endDate = null;
           break;
         case 'Son 1 Yıl':
           _selectedDays = 365;
+          _startDate = null;
+          _endDate = null;
           break;
         case 'Tümü':
           _selectedDays = 3650;
+          _startDate = null;
+          _endDate = null;
+          break;
+        case 'Özel Tarih Aralığı':
+          // Tarih seçici zaten _showTimeRangeDialog içinde açılıyor
+          _selectedDays = 0; // Gün sayısı kullanılmayacak
           break;
       }
       
@@ -459,7 +485,9 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> w
               Expanded(
                 child: _buildSelectionCard(
                   'Zaman Aralığı',
-                  _selectedTimeRange,
+                  _selectedTimeRange == 'Özel Tarih Aralığı' && _startDate != null && _endDate != null
+                      ? '${DateFormat('dd.MM.yyyy').format(_startDate!)} - ${DateFormat('dd.MM.yyyy').format(_endDate!)}'
+                      : _selectedTimeRange,
                   Icons.date_range,
                   const Color(0xFF9C27B0),
                   () => _showTimeRangeDialog(),
@@ -472,70 +500,70 @@ class _PerformanceAnalysisScreenState extends State<PerformanceAnalysisScreen> w
     );
   }
 
-Widget _buildSelectionCard(
-  String title,
-  String subtitle,
-  IconData icon,
-  Color color,
-  VoidCallback onTap,
-) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      height: 120,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+  Widget _buildSelectionCard(
+    String title,
+    String subtitle,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 120,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-                maxLines: 1, // EKLENDİ: Metnin en fazla 1 satır olmasını sağlar
-                overflow: TextOverflow.ellipsis, // EKLENDİ: Taşma durumunda "..." ile gösterir
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
+              child: Icon(icon, color: color, size: 20),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildAnalysisResults() {
     if (_analysis == null) {
@@ -881,9 +909,9 @@ Widget _buildSelectionCard(
     }
     
     if (isHigherBetter) {
-        comment += "Bu metrik için yüksek değerler daha iyidir.";
+      comment += "Bu metrik için yüksek değerler daha iyidir.";
     } else {
-        comment += "Bu metrik için düşük değerler daha iyidir.";
+      comment += "Bu metrik için düşük değerler daha iyidir.";
     }
 
     return Container(
@@ -1220,9 +1248,47 @@ Widget _buildSelectionCard(
                 ),
                 title: Text(range),
                 trailing: isSelected ? const Icon(Icons.check, color: Color(0xFF9C27B0)) : null,
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
-                  _onTimeRangeChanged(range);
+                  if (range == 'Özel Tarih Aralığı') {
+                    final DateTimeRange? picked = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime.now(),
+                      initialDateRange: _startDate != null && _endDate != null
+                          ? DateTimeRange(start: _startDate!, end: _endDate!)
+                          : DateTimeRange(
+                              start: DateTime.now().subtract(const Duration(days: 1)),
+                              end: DateTime.now(),
+                            ),
+                      builder: (context, child) {
+                        return Theme(
+                          data: ThemeData.light().copyWith(
+                            colorScheme: const ColorScheme.light(
+                              primary: Color(0xFF9C27B0),
+                              onPrimary: Colors.white,
+                              surface: Colors.white,
+                              onSurface: Colors.black,
+                            ),
+                            dialogBackgroundColor: Colors.white,
+                          ),
+                          child: child!,
+                        );
+                      },
+                    );
+
+                    if (picked != null) {
+                      setState(() {
+                        _selectedTimeRange = 'Özel Tarih Aralığı';
+                        _startDate = picked.start;
+                        _endDate = picked.end;
+                        _selectedDays = 0; // Özel aralıkta gün sayısı kullanılmaz
+                      });
+                      _loadAnalysis();
+                    }
+                  } else {
+                    _onTimeRangeChanged(range);
+                  }
                 },
               ),
             );
