@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/sporcu_model.dart';
 import '../models/olcum_model.dart';
+import '../models/performance_analysis_model.dart'; // YENİ EKLENEN
 import '../services/database_service.dart';
+import '../widgets/pdf_action_widget.dart'; // YENİ EKLENEN
 
 class DikeyProfilScreen extends StatefulWidget {
   const DikeyProfilScreen({super.key});
@@ -17,14 +20,16 @@ class _DikeyProfilScreenState extends State<DikeyProfilScreen> {
   Sporcu? _secilenSporcu;
   List<Sporcu> _sporcular = [];
   bool _isLoading = true;
+  bool _isSaving = false; // YENİ EKLENEN - Kayıt durumu
   List<Olcum> _olcumler = [];
-  List<Olcum> _tumOlcumler = []; // Tüm CMJ ve SJ ölçümlerini tutacak
-  List<bool> _seciliOlcumler = []; // Hangi ölçümlerin seçildiğini tutacak
-  List<Olcum> _hesaplamayaGirecekOlcumler = []; // Hesaplamaya girecek ölçümleri tutacak
+  List<Olcum> _tumOlcumler = [];
+  List<bool> _seciliOlcumler = [];
+  List<Olcum> _hesaplamayaGirecekOlcumler = [];
   List<double> _jumpHeights = [];
   final List<double> _additionalMasses = [0, 20, 40, 60, 80];
   List<double> _forces = [];
   List<double> _velocities = [];
+  PerformanceAnalysis? _savedAnalysis; // YENİ EKLENEN - Kaydedilen analiz
 
   // Dikey profil sonuçları
   double _bodyMass = 0.0;
@@ -46,6 +51,456 @@ class _DikeyProfilScreenState extends State<DikeyProfilScreen> {
     _loadSporcular();
   }
 
+  // ========== VERİTABANI KAYIT İŞLEMLERİ ==========
+  
+  /// Dikey profil analizini veritabanına kaydet
+  Future<void> _saveAnalysisToDatabase() async {
+    if (_secilenSporcu == null || _hesaplamayaGirecekOlcumler.isEmpty) {
+      _showSnackBar('Kaydedilecek geçerli analiz verisi yok', isError: true);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      // Performans analizi objesi oluştur
+      final analysis = PerformanceAnalysis(
+        sporcuId: _secilenSporcu!.id!,
+        olcumTuru: 'DikeyProfil',
+        degerTuru: 'KuvvetHizAnalizi',
+        timeRange: 'Seçili Ölçümler',
+        calculationDate: DateTime.now(),
+        
+        // Temel istatistikler (dikey profil için adapte edilmiş)
+        mean: _jumpHeights.isNotEmpty ? _jumpHeights.reduce((a, b) => a + b) / _jumpHeights.length : 0.0,
+        standardDeviation: _calculateStandardDeviation(_jumpHeights),
+        coefficientOfVariation: _calculateCV(_jumpHeights),
+        minimum: _jumpHeights.isNotEmpty ? _jumpHeights.reduce(math.min) : 0.0,
+        maximum: _jumpHeights.isNotEmpty ? _jumpHeights.reduce(math.max) : 0.0,
+        range: _jumpHeights.isNotEmpty ? (_jumpHeights.reduce(math.max) - _jumpHeights.reduce(math.min)) : 0.0,
+        median: _calculateMedian(_jumpHeights),
+        sampleCount: _jumpHeights.length,
+        q25: _calculatePercentile(_jumpHeights, 25),
+        q75: _calculatePercentile(_jumpHeights, 75),
+        iqr: _calculatePercentile(_jumpHeights, 75) - _calculatePercentile(_jumpHeights, 25),
+        
+        // Dikey profil spesifik değerler
+        typicalityIndex: _rSquared * 100, // R² değerini tipiklik indeksi olarak kullan
+        momentum: _calculateMomentum(),
+        trendSlope: _sfvPerKg,
+        trendStability: _rSquared,
+        trendRSquared: _rSquared,
+        trendStrength: _calculateTrendStrength(),
+        
+        // Güvenilirlik metrikleri (dikey profil için adapte)
+        swc: _calculateSWC(),
+        mdc: _calculateMDC(),
+        testRetestReliability: _rSquared,
+        icc: _rSquared,
+        cvPercent: _calculateCV(_jumpHeights),
+        
+        // Performans değerlendirme
+        performanceClass: _getPerformanceClass(),
+        performanceTrend: _getPerformanceTrend(),
+        recentChange: _calculateRecentChange(),
+        recentChangePercent: _calculateRecentChangePercent(),
+        outliersCount: _calculateOutliersCount(),
+        
+        // JSON veriler
+        performanceValuesJson: jsonEncode(_jumpHeights),
+        datesJson: jsonEncode(_hesaplamayaGirecekOlcumler.map((o) => o.olcumTarihi).toList()),
+        zScoresJson: jsonEncode(_calculateZScores(_jumpHeights)),
+        outliersJson: jsonEncode(_identifyOutliers(_jumpHeights)),
+        
+        // Dikey profil spesifik ek veriler
+        additionalData: {
+          'dikeyProfil': {
+            'bodyMass': _bodyMass,
+            'legLength': _legLength,
+            'sittingHeight': _sittingHeight,
+            'pushOffDistance': _pushOffDistance,
+            'f0PerKg': _f0PerKg,
+            'v0PerKg': _v0PerKg,
+            'pmaxPerKg': _pmaxPerKg,
+            'sfvPerKg': _sfvPerKg,
+            'sfvOptPerKg': _sfvOptPerKg,
+            'sfvOpt30PerKg': _sfvOpt30PerKg,
+            'fvimb': _fvimb,
+            'profileType': _getProfileType(),
+            'interpretation': _getProfileInterpretation(),
+            'recommendations': _getRecommendations(),
+            'forces': _forces,
+            'velocities': _velocities,
+            'additionalMasses': _additionalMasses,
+            'selectedMeasurements': _hesaplamayaGirecekOlcumler.map((o) => {
+              'id': o.id,
+              'type': o.olcumTuru,
+              'order': o.olcumSirasi,
+              'testId': o.testId,
+              'date': o.olcumTarihi,
+              'height': _getHeightFromOlcum(o),
+            }).toList(),
+          }
+        },
+      );
+
+      // Veritabanına kaydet
+      final analysisId = await _databaseService.savePerformanceAnalysis(analysis);
+      _savedAnalysis = analysis.copyWith(id: analysisId);
+      
+      _showSnackBar(
+        'Dikey profil analizi başarıyla veritabanına kaydedildi (ID: $analysisId)', 
+        isError: false
+      );
+
+      debugPrint('DikeyProfil analizi kaydedildi: ID=$analysisId, Sporcu=${_secilenSporcu!.ad}');
+      
+    } catch (e) {
+      debugPrint('DikeyProfil analizi kaydetme hatası: $e');
+      _showSnackBar('Analiz kaydetme hatası: $e', isError: true);
+    } finally {
+      setState(() => _isSaving = false);
+    }
+  }
+
+  // ========== İSTATİSTİK HESAPLAMA HELPER METODLARI ==========
+  
+  double _calculateStandardDeviation(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double sumSquaredDiffs = values.fold(0.0, (sum, value) => sum + math.pow(value - mean, 2));
+    return math.sqrt(sumSquaredDiffs / values.length);
+  }
+  
+  double _calculateCV(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double stdDev = _calculateStandardDeviation(values);
+    return mean != 0 ? (stdDev / mean) * 100 : 0.0;
+  }
+  
+  double _calculateMedian(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    List<double> sorted = List.from(values)..sort();
+    int middle = sorted.length ~/ 2;
+    if (sorted.length % 2 == 0) {
+      return (sorted[middle - 1] + sorted[middle]) / 2;
+    } else {
+      return sorted[middle];
+    }
+  }
+  
+  double _calculatePercentile(List<double> values, int percentile) {
+    if (values.isEmpty) return 0.0;
+    List<double> sorted = List.from(values)..sort();
+    double index = (percentile / 100) * (sorted.length - 1);
+    int lowerIndex = index.floor();
+    int upperIndex = index.ceil();
+    
+    if (lowerIndex == upperIndex) {
+      return sorted[lowerIndex];
+    } else {
+      double weight = index - lowerIndex;
+      return sorted[lowerIndex] * (1 - weight) + sorted[upperIndex] * weight;
+    }
+  }
+  
+  double _calculateMomentum() {
+    // Son 3 ölçümün trend yönünü hesapla
+    if (_jumpHeights.length < 3) return 0.0;
+    
+    List<double> recent = _jumpHeights.take(3).toList();
+    double firstHalf = recent.take(recent.length ~/ 2).reduce((a, b) => a + b) / (recent.length ~/ 2);
+    double secondHalf = recent.skip(recent.length ~/ 2).reduce((a, b) => a + b) / (recent.length - recent.length ~/ 2);
+    
+    return ((secondHalf - firstHalf) / firstHalf) * 100;
+  }
+  
+  double _calculateTrendStrength() {
+    return _rSquared > 0.8 ? 1.0 : _rSquared > 0.6 ? 0.5 : 0.0;
+  }
+  
+  double _calculateSWC() {
+    // Smallest Worthwhile Change - 0.2 x SD olarak hesapla
+    return _calculateStandardDeviation(_jumpHeights) * 0.2;
+  }
+  
+  double _calculateMDC() {
+    // Minimal Detectable Change - 1.96 x SEM olarak hesapla
+    double sem = _calculateStandardDeviation(_jumpHeights) / math.sqrt(_jumpHeights.length);
+    return 1.96 * sem;
+  }
+  
+  String _getPerformanceClass() {
+    if (_fvimb.isNaN) return 'Hesaplanamadı';
+    
+    if (_pmaxPerKg > 50) return 'Mükemmel';
+    if (_pmaxPerKg > 40) return 'İyi';
+    if (_pmaxPerKg > 30) return 'Orta';
+    return 'Düşük';
+  }
+  
+  String _getPerformanceTrend() {
+    if (_jumpHeights.length < 2) return 'Belirsiz';
+    
+    double firstValue = _jumpHeights.first;
+    double lastValue = _jumpHeights.last;
+    double change = ((lastValue - firstValue) / firstValue) * 100;
+    
+    if (change > 5) return 'Yükseliş';
+    if (change < -5) return 'Düşüş';
+    return 'Stabil';
+  }
+  
+  double _calculateRecentChange() {
+    if (_jumpHeights.length < 2) return 0.0;
+    return _jumpHeights.last - _jumpHeights.first;
+  }
+  
+  double _calculateRecentChangePercent() {
+    if (_jumpHeights.length < 2 || _jumpHeights.first == 0) return 0.0;
+    return ((_jumpHeights.last - _jumpHeights.first) / _jumpHeights.first) * 100;
+  }
+  
+  int _calculateOutliersCount() {
+    List<double> outliers = _identifyOutliers(_jumpHeights);
+    return outliers.length;
+  }
+  
+  List<double> _calculateZScores(List<double> values) {
+    if (values.isEmpty) return [];
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double stdDev = _calculateStandardDeviation(values);
+    if (stdDev == 0) return List.filled(values.length, 0.0);
+    return values.map((value) => (value - mean) / stdDev).toList();
+  }
+  
+  List<double> _identifyOutliers(List<double> values) {
+    if (values.length < 4) return [];
+    
+    double q1 = _calculatePercentile(values, 25);
+    double q3 = _calculatePercentile(values, 75);
+    double iqr = q3 - q1;
+    double lowerBound = q1 - 1.5 * iqr;
+    double upperBound = q3 + 1.5 * iqr;
+    
+    return values.where((value) => value < lowerBound || value > upperBound).toList();
+  }
+
+  // ========== PDF VERİ HAZIRLAMA ==========
+  
+  Map<String, dynamic> get _pdfAnalysisData {
+    return {
+      // Temel bilgiler
+      'bodyMass': _bodyMass,
+      'legLength': _legLength,
+      'sittingHeight': _sittingHeight,
+      'pushOffDistance': _pushOffDistance,
+      
+      // Profil sonuçları
+      'f0PerKg': _f0PerKg,
+      'v0PerKg': _v0PerKg,
+      'pmaxPerKg': _pmaxPerKg,
+      'sfvPerKg': _sfvPerKg,
+      'sfvOptPerKg': _sfvOptPerKg,
+      'sfvOpt30PerKg': _sfvOpt30PerKg,
+      'fvimb': _fvimb,
+      'rSquared': _rSquared,
+      
+      // Ham veriler
+      'jumpHeights': _jumpHeights,
+      'additionalMasses': _additionalMasses,
+      'forces': _forces,
+      'velocities': _velocities,
+      
+      // İstatistikler
+      'mean': _jumpHeights.isNotEmpty ? _jumpHeights.reduce((a, b) => a + b) / _jumpHeights.length : 0.0,
+      'standardDeviation': _calculateStandardDeviation(_jumpHeights),
+      'coefficientOfVariation': _calculateCV(_jumpHeights),
+      'minimum': _jumpHeights.isNotEmpty ? _jumpHeights.reduce(math.min) : 0.0,
+      'maximum': _jumpHeights.isNotEmpty ? _jumpHeights.reduce(math.max) : 0.0,
+      'median': _calculateMedian(_jumpHeights),
+      'sampleCount': _jumpHeights.length,
+      
+      // Ölçüm verileri
+      'selectedMeasurements': _hesaplamayaGirecekOlcumler.map((olcum) => {
+        'type': olcum.olcumTuru,
+        'order': olcum.olcumSirasi,
+        'testId': olcum.testId,
+        'date': olcum.olcumTarihi,
+        'height': _getHeightFromOlcum(olcum),
+      }).toList(),
+      
+      // Profil yorumlama
+      'interpretation': _getProfileInterpretation(),
+      'profileType': _getProfileType(),
+      'recommendations': _getRecommendations(),
+      'performanceClass': _getPerformanceClass(),
+      
+      // Grafik verileri
+      'chartData': {
+        'actualProfile': _forces.asMap().entries.map((entry) => {
+          'x': _velocities[entry.key],
+          'y': entry.value,
+        }).toList(),
+        'optimalProfile90': _getOptimalProfile90Data(),
+        'optimalProfile30': _getOptimalProfile30Data(),
+      },
+      
+      // Metadata
+      'calculationDate': DateTime.now().toIso8601String(),
+      'measurementCount': _hesaplamayaGirecekOlcumler.length,
+      'analysisType': 'Dikey Kuvvet-Hız Profili',
+      'savedAnalysisId': _savedAnalysis?.id,
+    };
+  }
+
+  PDFReportConfig? get _pdfConfig {
+    if (_secilenSporcu == null || _hesaplamayaGirecekOlcumler.isEmpty) {
+      return null;
+    }
+    
+    return PDFReportConfig.performance(
+      sporcu: _secilenSporcu!,
+      olcumTuru: 'DikeyProfil',
+      degerTuru: 'KuvvetHizAnalizi',
+      analysisData: _pdfAnalysisData,
+      additionalNotes: 'Dikey Kuvvet-Hız Profili analizi raporu.\n\n'
+          'Analiz Detayları:\n'
+          '• ${_hesaplamayaGirecekOlcumler.length} adet ölçüm kullanıldı\n'
+          '• Profil Tipi: ${_getProfileType()}\n'
+          '• FVimb (Profil Dengesizliği): ${_fvimb.toStringAsFixed(1)}%\n'
+          '• R² (Güvenilirlik): ${_rSquared.toStringAsFixed(3)}\n'
+          '• Maksimal Güç: ${_pmaxPerKg.toStringAsFixed(1)} W/kg\n'
+          '• Performans Sınıfı: ${_getPerformanceClass()}\n\n'
+          'Bu rapor ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} tarihinde oluşturulmuştur.',
+      includeCharts: true,
+      showPrintButton: true,
+    );
+  }
+
+  // ========== HELPER METODLAR ==========
+  
+  double _getHeightFromOlcum(Olcum olcum) {
+    try {
+      return olcum.degerler
+          .firstWhere((d) => d.degerTuru == 'yukseklik')
+          .deger;
+    } catch (e) {
+      return 0.0;
+    }
+  }
+  
+  String _getProfileType() {
+    if (_fvimb.isNaN) return "Hesaplanamadı";
+    
+    if (_fvimb < -15) {
+      return "Kuvvet Yönelimli";
+    } else if (_fvimb > 15) {
+      return "Hız Yönelimli"; 
+    } else {
+      return "Dengeli Profil";
+    }
+  }
+  
+  List<String> _getRecommendations() {
+    List<String> recommendations = [];
+    
+    if (_fvimb.isNaN) {
+      recommendations.add("Yeterli veri bulunamadı. Daha fazla ölçüm yapın.");
+      return recommendations;
+    }
+    
+    if (_fvimb < -15) {
+      recommendations.addAll([
+        "Pliometrik sıçrama antrenmanlarına odaklanın",
+        "Hızlı tekrarlı egzersizler yapın", 
+        "Sprint antrenmanları ekleyin",
+        "Reaktif kuvvet geliştirici çalışmalar yapın"
+      ]);
+    } else if (_fvimb > 15) {
+      recommendations.addAll([
+        "Maksimal kuvvet antrenmanlarına ağırlık verin",
+        "Squat, deadlift gibi temel egzersizleri arttırın",
+        "Ağır yüklerle yavaş hareketler yapın",
+        "İzometrik kuvvet çalışmaları ekleyin"
+      ]);
+    } else {
+      recommendations.addAll([
+        "Mevcut dengeli profilinizi koruyun",
+        "Hem kuvvet hem hız antrenmanlarını eşit oranda yapın",
+        "Periyodizasyon uygulayarak varyasyon sağlayın",
+        "Spor dalınıza özel antrenman ağırlığı verin"
+      ]);
+    }
+    
+    if (_rSquared < 0.7) {
+      recommendations.add("Ölçüm tutarlılığını artırmak için standart protokol kullanın");
+    }
+    
+    return recommendations;
+  }
+  
+  List<Map<String, double>> _getOptimalProfile90Data() {
+    double f0Opt90 = 0;
+    double v0Opt90 = 0;
+    
+    if (_sfvOptPerKg.isFinite && _pmaxPerKg.isFinite && 
+        !_sfvOptPerKg.isNaN && !_pmaxPerKg.isNaN && 
+        _pmaxPerKg > 0 && _sfvOptPerKg != 0) {
+      double value = -_sfvOptPerKg * _pmaxPerKg;
+      if (value > 0) {
+        f0Opt90 = 2 * math.sqrt(value);
+        if (f0Opt90 > 0) {
+          v0Opt90 = (4 * _pmaxPerKg) / f0Opt90;
+        }
+      }
+    }
+    
+    return [
+      {'x': 0.0, 'y': f0Opt90},
+      {'x': v0Opt90, 'y': 0.0},
+    ];
+  }
+  
+  List<Map<String, double>> _getOptimalProfile30Data() {
+    double f0Opt30 = 0;
+    double v0Opt30 = 0;
+    
+    if (_sfvOpt30PerKg.isFinite && _pmaxPerKg.isFinite && 
+        !_sfvOpt30PerKg.isNaN && !_pmaxPerKg.isNaN && 
+        _pmaxPerKg > 0 && _sfvOpt30PerKg != 0) {
+      double value = -_sfvOpt30PerKg * _pmaxPerKg;
+      if (value > 0) {
+        f0Opt30 = 2 * math.sqrt(value);
+        if (f0Opt30 > 0) {
+          v0Opt30 = (4 * _pmaxPerKg) / f0Opt30;
+        }
+      }
+    }
+    
+    return [
+      {'x': 0.0, 'y': f0Opt30},
+      {'x': v0Opt30, 'y': 0.0},
+    ];
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? Colors.red : const Color(0xFF4CAF50),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: Duration(seconds: isError ? 4 : 3),
+        ),
+      );
+    }
+  }
+
+  // ========== MEVCUT METODLAR (AYNI KALIYOR) ==========
+
   Future<void> _loadSporcular() async {
     try {
       _sporcular = await _databaseService.getAllSporcular();
@@ -63,205 +518,148 @@ class _DikeyProfilScreenState extends State<DikeyProfilScreen> {
   }
 
   Future<void> _loadSporcuOlcumleri(int sporcuId) async {
-  setState(() => _isLoading = true);
-  try {
-    // Sporcu bilgilerini al
-    _secilenSporcu = await _databaseService.getSporcu(sporcuId);
-    if (_secilenSporcu == null) {
-      throw Exception('Sporcu bulunamadı');
-    }
-
-    // Vücut ağırlığı, bacak boyu ve oturma boyu bilgilerini al
-    if (_secilenSporcu!.kilo != null && _secilenSporcu!.kilo!.isNotEmpty) {
-      _bodyMass = double.parse(_secilenSporcu!.kilo!);
-    } else {
-      _bodyMass = 0.0;
-      throw Exception('Vücut ağırlığı bilgisi bulunamadı');
-    }
-
-    if (_secilenSporcu!.bacakBoyu != null && _secilenSporcu!.bacakBoyu!.isNotEmpty) {
-      _legLength = double.parse(_secilenSporcu!.bacakBoyu!);
-    } else {
-      _legLength = 0.0;
-      throw Exception('Bacak boyu bilgisi bulunamadı');
-    }
-
-    if (_secilenSporcu!.oturmaBoyu != null && _secilenSporcu!.oturmaBoyu!.isNotEmpty) {
-      _sittingHeight = double.parse(_secilenSporcu!.oturmaBoyu!);
-    } else {
-      _sittingHeight = 0.0;
-      throw Exception('Oturma boyu bilgisi bulunamadı');
-    }
-
-    // İtme mesafesini hesapla (m)
-    _pushOffDistance = (_legLength - _sittingHeight) / 100.0;
-    if (_pushOffDistance <= 0) {
-      throw Exception(
-          'İtme mesafesi hesaplanamadı: $_pushOffDistance (Bacak boyu: $_legLength cm, Oturma boyu: $_sittingHeight cm)');
-    }
-
-    // Ölçümleri al
-    _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
-    debugPrint('DikeyProfilScreen: Toplam ölçüm sayısı: ${_olcumler.length}');
-
-    // Her ölçümün değerlerini kontrol et ve eksikse tekrar yükle
-    for (int i = 0; i < _olcumler.length; i++) {
-      var olcum = _olcumler[i];
-      debugPrint('DikeyProfilScreen: Ölçüm ID: ${olcum.id}, Tür: ${olcum.olcumTuru}, Mevcut değer sayısı: ${olcum.degerler.length}');
-      
-      // Eğer değerler boşsa, manuel olarak yükle
-      if (olcum.degerler.isEmpty && olcum.id != null) {
-        debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için değerler manuel olarak yükleniyor...');
-        try {
-          List<OlcumDeger> degerler = await _databaseService.getOlcumDegerlerByOlcumId(olcum.id!);
-          olcum.degerler = degerler;
-          debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için ${degerler.length} değer yüklendi');
-          
-          // Değerleri listele
-          for (var deger in degerler) {
-            debugPrint('  DikeyProfilScreen: Değer türü: ${deger.degerTuru}, Değer: ${deger.deger}');
-          }
-        } catch (e) {
-          debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için değerler yüklenirken hata: $e');
-        }
-      }
-    }
-
-    // Sadece CMJ ve SJ ölçümlerini filtrele
-    _tumOlcumler = _olcumler
-        .where((olcum) => olcum.olcumTuru == 'CMJ' || olcum.olcumTuru == 'SJ')
-        .toList();
-
-    debugPrint('DikeyProfilScreen: CMJ/SJ ölçüm sayısı: ${_tumOlcumler.length}');
-    
-    // Filtrelenmiş ölçümlerin değerlerini tekrar kontrol et
-    for (var olcum in _tumOlcumler) {
-      debugPrint('DikeyProfilScreen: Filtrelenmiş ölçüm ID: ${olcum.id}, Tür: ${olcum.olcumTuru}, Değer sayısı: ${olcum.degerler.length}');
-      for (var deger in olcum.degerler) {
-        debugPrint('  DikeyProfilScreen: ${deger.degerTuru} = ${deger.deger}');
-      }
-    }
-
-    if (_tumOlcumler.isEmpty) {
-      throw Exception('Sıçrama (CMJ veya SJ) ölçümü bulunamadı.');
-    }
-
-    // İlk başta tüm ölçümler seçili olsun
-    _seciliOlcumler = List.filled(_tumOlcumler.length, true);
-    
-    // Seçili ölçümleri güncelle
-    _updateSelectedOlcumler();
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e')),
-      );
-    }
-  } finally {
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
-  }
-}
-
-void _updateSelectedOlcumler() {
-  debugPrint('DikeyProfilScreen: _updateSelectedOlcumler çağrıldı.');
-  _hesaplamayaGirecekOlcumler = [];
-
-  for (int i = 0; i < _tumOlcumler.length; i++) {
-    if (i < _seciliOlcumler.length && _seciliOlcumler[i]) {
-      _hesaplamayaGirecekOlcumler.add(_tumOlcumler[i]);
-    }
-  }
-  debugPrint('DikeyProfilScreen: _hesaplamayaGirecekOlcumler Sayısı: ${_hesaplamayaGirecekOlcumler.length}');
-
-  _jumpHeights = [];
-  for (var olcum in _hesaplamayaGirecekOlcumler) {
-    debugPrint('DikeyProfilScreen: Yükseklik aranıyor - Olcum ID: ${olcum.id}, Tür: ${olcum.olcumTuru}');
-    debugPrint('DikeyProfilScreen: Ölçüm değerleri sayısı: ${olcum.degerler.length}');
-    
-    // Ölçüm değerlerini listele
-    for (var deger in olcum.degerler) {
-      debugPrint('  DikeyProfilScreen: Değer türü: ${deger.degerTuru}, Değer: ${deger.deger}');
-    }
-    
-    // Yükseklik değerini bul
-    OlcumDeger? yukseklikDegeri;
+    setState(() => _isLoading = true);
     try {
-      yukseklikDegeri = olcum.degerler.firstWhere(
-        (d) => d.degerTuru == 'yukseklik',
-      );
-      debugPrint('  DikeyProfilScreen: Bulunan "yukseklik" değeri: ${yukseklikDegeri.deger}');
-      
-      if (yukseklikDegeri.deger > 0) {
-        _jumpHeights.add(yukseklikDegeri.deger);
-        debugPrint('  DikeyProfilScreen: Yükseklik ${yukseklikDegeri.deger} cm _jumpHeights listesine eklendi.');
-      } else {
-        debugPrint('  DikeyProfilScreen: Yükseklik <= 0 olduğu için _jumpHeights listesine eklenmedi.');
+      _secilenSporcu = await _databaseService.getSporcu(sporcuId);
+      if (_secilenSporcu == null) {
+        throw Exception('Sporcu bulunamadı');
       }
-    } catch (e) {
-      debugPrint('  DikeyProfilScreen: Olcum ID ${olcum.id} için "yukseklik" değeri bulunamadı. Hata: $e');
-      
-      // Alternatif değer türlerini dene
-      for (String alternatif in ['Height', 'height', 'YUKSEKLIK', 'jump_height']) {
-        try {
-          yukseklikDegeri = olcum.degerler.firstWhere(
-            (d) => d.degerTuru == alternatif,
-          );
-          debugPrint('  DikeyProfilScreen: Alternatif "$alternatif" değeri bulundu: ${yukseklikDegeri.deger}');
-          
-          if (yukseklikDegeri.deger > 0) {
-            _jumpHeights.add(yukseklikDegeri.deger);
-            debugPrint('  DikeyProfilScreen: Alternatif yükseklik ${yukseklikDegeri.deger} cm _jumpHeights listesine eklendi.');
+
+      if (_secilenSporcu!.kilo != null && _secilenSporcu!.kilo!.isNotEmpty) {
+        _bodyMass = double.parse(_secilenSporcu!.kilo!);
+      } else {
+        _bodyMass = 0.0;
+        throw Exception('Vücut ağırlığı bilgisi bulunamadı');
+      }
+
+      if (_secilenSporcu!.bacakBoyu != null && _secilenSporcu!.bacakBoyu!.isNotEmpty) {
+        _legLength = double.parse(_secilenSporcu!.bacakBoyu!);
+      } else {
+        _legLength = 0.0;
+        throw Exception('Bacak boyu bilgisi bulunamadı');
+      }
+
+      if (_secilenSporcu!.oturmaBoyu != null && _secilenSporcu!.oturmaBoyu!.isNotEmpty) {
+        _sittingHeight = double.parse(_secilenSporcu!.oturmaBoyu!);
+      } else {
+        _sittingHeight = 0.0;
+        throw Exception('Oturma boyu bilgisi bulunamadı');
+      }
+
+      _pushOffDistance = (_legLength - _sittingHeight) / 100.0;
+      if (_pushOffDistance <= 0) {
+        throw Exception(
+            'İtme mesafesi hesaplanamadı: $_pushOffDistance (Bacak boyu: $_legLength cm, Oturma boyu: $_sittingHeight cm)');
+      }
+
+      _olcumler = await _databaseService.getOlcumlerBySporcuId(sporcuId);
+
+      for (int i = 0; i < _olcumler.length; i++) {
+        var olcum = _olcumler[i];
+        if (olcum.degerler.isEmpty && olcum.id != null) {
+          try {
+            List<OlcumDeger> degerler = await _databaseService.getOlcumDegerlerByOlcumId(olcum.id!);
+            olcum.degerler = degerler;
+          } catch (e) {
+            debugPrint('DikeyProfilScreen: Ölçüm ID ${olcum.id} için değerler yüklenirken hata: $e');
           }
-          break;
-        } catch (e2) {
-          debugPrint('  DikeyProfilScreen: Alternatif "$alternatif" değeri de bulunamadı.');
         }
+      }
+
+      _tumOlcumler = _olcumler
+          .where((olcum) => olcum.olcumTuru == 'CMJ' || olcum.olcumTuru == 'SJ')
+          .toList();
+
+      if (_tumOlcumler.isEmpty) {
+        throw Exception('Sıçrama (CMJ veya SJ) ölçümü bulunamadı.');
+      }
+
+      _seciliOlcumler = List.filled(_tumOlcumler.length, true);
+      _updateSelectedOlcumler();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
-  
-  debugPrint('DikeyProfilScreen: _jumpHeights: $_jumpHeights');
-  debugPrint('DikeyProfilScreen: _jumpHeights toplam sayı: ${_jumpHeights.length}');
-  
-  setState(() {}); // UI'ı güncellemek için
-}
+
+  void _updateSelectedOlcumler() {
+    _hesaplamayaGirecekOlcumler = [];
+
+    for (int i = 0; i < _tumOlcumler.length; i++) {
+      if (i < _seciliOlcumler.length && _seciliOlcumler[i]) {
+        _hesaplamayaGirecekOlcumler.add(_tumOlcumler[i]);
+      }
+    }
+
+    _jumpHeights = [];
+    for (var olcum in _hesaplamayaGirecekOlcumler) {
+      OlcumDeger? yukseklikDegeri;
+      try {
+        yukseklikDegeri = olcum.degerler.firstWhere(
+          (d) => d.degerTuru == 'yukseklik',
+        );
+        
+        if (yukseklikDegeri.deger > 0) {
+          _jumpHeights.add(yukseklikDegeri.deger);
+        }
+      } catch (e) {
+        for (String alternatif in ['Height', 'height', 'YUKSEKLIK', 'jump_height']) {
+          try {
+            yukseklikDegeri = olcum.degerler.firstWhere(
+              (d) => d.degerTuru == alternatif,
+            );
+            
+            if (yukseklikDegeri.deger > 0) {
+              _jumpHeights.add(yukseklikDegeri.deger);
+            }
+            break;
+          } catch (e2) {
+            // Alternatif bulunamadı
+          }
+        }
+      }
+    }
+    
+    setState(() {});
+  }
+
   void _calculateForceVelocityProfile() {
     try {
-      // Ölçüm sayısını kontrol et
       if (_jumpHeights.length < 3) {
         throw Exception('En az 3 sıçrama ölçümü gereklidir.');
       }
 
-      const double g = 9.81; // Yerçekimi ivmesi (m/s²)
+      const double g = 9.81;
 
-      // 1. Takeoff hızları ve ortalama itme hızları
       List<double> vTakeoff = [];
       List<double> vMean = [];
       for (int i = 0; i < _jumpHeights.length; i++) {
-        double h = _jumpHeights[i] / 100.0; // cm'den m'ye çevir
-        double v = math.sqrt(2 * g * h); // v_takeoff
+        double h = _jumpHeights[i] / 100.0;
+        double v = math.sqrt(2 * g * h);
         vTakeoff.add(v);
-        vMean.add(v / 2); // v_mean
+        vMean.add(v / 2);
       }
 
-      // 2. Ortalama kuvvetler (Samozino formülü) ve normalizasyon
       _forces = [];
       _velocities = [];
       for (int i = 0; i < _jumpHeights.length; i++) {
-        // _jumpHeights ve _additionalMasses eşleşmesi için sınır kontrolü
         double additionalMass = i < _additionalMasses.length ? _additionalMasses[i] : 0;
         
         double totalMass = _bodyMass + additionalMass;
         double v = vTakeoff[i];
         double fMean = totalMass * ((v * v) / (2 * _pushOffDistance) + g);
-        double fNorm = fMean / _bodyMass; // N/kg cinsinden
+        double fNorm = fMean / _bodyMass;
         _forces.add(fNorm);
         _velocities.add(vMean[i]);
       }
 
-      // 3. Lineer regresyon
       double sumV = _velocities.reduce((a, b) => a + b);
       double sumF = _forces.reduce((a, b) => a + b);
       double sumVF = 0;
@@ -273,8 +671,8 @@ void _updateSelectedOlcumler() {
 
       double a, b;
       if (n * sumV2 - sumV * sumV != 0) {
-        a = (n * sumVF - sumV * sumF) / (n * sumV2 - sumV * sumV); // slope (Sfv)
-        b = (sumF - a * sumV) / n; // intercept (F0)
+        a = (n * sumVF - sumV * sumF) / (n * sumV2 - sumV * sumV);
+        b = (sumF - a * sumV) / n;
       } else {
         a = 0;
         b = 0;
@@ -282,7 +680,6 @@ void _updateSelectedOlcumler() {
 
       _f0PerKg = b;
       
-      // v0 hesaplaması için payda kontrolü
       if (a != 0) {
         _v0PerKg = -b / a;
       } else {
@@ -292,21 +689,18 @@ void _updateSelectedOlcumler() {
       _sfvPerKg = a;
       _pmaxPerKg = (_f0PerKg * _v0PerKg) / 4;
 
-      // 4. Optimal profil hesaplamaları (90° ve 30° için)
       double penteOpt90 = _calculatePenteOpt(g, _pmaxPerKg, _pushOffDistance, 90.0);
       _sfvOptPerKg = _calculateSfvOpt(_pmaxPerKg, _pushOffDistance, g, penteOpt90, 90.0);
 
       double penteOpt30 = _calculatePenteOpt(g, _pmaxPerKg, _pushOffDistance, 30.0);
       _sfvOpt30PerKg = _calculateSfvOpt(_pmaxPerKg, _pushOffDistance, g, penteOpt30, 30.0);
 
-      // 5. FVimb hesaplama (Profil Dengesizliği)
       if (_sfvOptPerKg != 0) {
         _fvimb = 100 * (_sfvPerKg - _sfvOptPerKg) / _sfvOptPerKg.abs();
       } else {
         _fvimb = 0;
       }
 
-      // 6. R² hesaplama
       double meanF = _forces.reduce((a, b) => a + b) / _forces.length;
       double ssTot = _forces.fold(0, (sum, f) => sum + math.pow(f - meanF, 2));
       double ssRes = 0;
@@ -335,11 +729,9 @@ void _updateSelectedOlcumler() {
   double _calculatePenteOpt(
       double g, double pmaxPerKg, double pushOffDistance, double alphaDegrees) {
     try {
-      // Açıya bağlı olarak g'yi güncelle (g * sin(alpha))
       double alphaRadians = alphaDegrees * math.pi / 180.0;
       double gAdjusted = g * math.sin(alphaRadians);
 
-      // Eğer giriş değerleri uygun değilse, hesaplama yapmadan dön
       if (pmaxPerKg <= 0 || pushOffDistance <= 0) {
         return 0.0;
       }
@@ -388,7 +780,6 @@ void _updateSelectedOlcumler() {
   double _calculateSfvOpt(double pmaxPerKg, double pushOffDistance, double g,
       double penteOpt, double alphaDegrees) {
     try {
-      // Açıya bağlı olarak g'yi güncelle (g * sin(alpha))
       double alphaRadians = alphaDegrees * math.pi / 180.0;
       double gAdjusted = g * math.sin(alphaRadians);
 
@@ -403,10 +794,8 @@ void _updateSelectedOlcumler() {
       double hpo4 = math.pow(pushOffDistance, 4).toDouble();
       double pmax2 = math.pow(pmaxPerKg, 2).toDouble();
 
-      // Birinci terim: -(g^2 / (3 * Pmax))
       double term1 = -(g2 / (3 * pmaxPerKg));
 
-      // İkinci terim
       double term2Numerator = -(g4 * hpo4) - (12 * gAdjusted * hpo3 * pmax2);
       double term2Denominator = 3 * hpo2 * pmaxPerKg * penteOpt;
 
@@ -417,7 +806,6 @@ void _updateSelectedOlcumler() {
         term2Fraction = term2Numerator / term2Denominator;
       }
 
-      // Üçüncü terim
       double term3Denominator = 3 * hpo2 * pmaxPerKg;
 
       double term3;
@@ -476,6 +864,24 @@ void _updateSelectedOlcumler() {
       appBar: AppBar(
         title: const Text('Dikey Kuvvet-Hız Profili'),
         backgroundColor: const Color(0xFF0288D1),
+        actions: [
+          // VERİTABANI KAYIT BUTONU
+          if (_secilenSporcu != null && _hesaplamayaGirecekOlcumler.isNotEmpty)
+            IconButton(
+              onPressed: _isSaving ? null : _saveAnalysisToDatabase,
+              icon: _isSaving 
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              tooltip: 'Analizi Veritabanına Kaydet',
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -487,7 +893,7 @@ void _updateSelectedOlcumler() {
                   _buildSporcuSecimBolumu(),
                   const SizedBox(height: 16),
                   if (_secilenSporcu != null) ...[
-                    _buildOlcumSecimBolumu(), // Tüm ölçümleri seçme bölümü
+                    _buildOlcumSecimBolumu(),
                     const SizedBox(height: 16),
                     _buildSporcuBilgileri(),
                     const SizedBox(height: 16),
@@ -498,12 +904,129 @@ void _updateSelectedOlcumler() {
                     _buildKuvvetHizGrafigi(),
                     const SizedBox(height: 16),
                     _buildProfileInterpretation(),
+                    const SizedBox(height: 20),
+                    
+                    // BAŞARI DURUMU GÖSTERGESİ
+                    if (_savedAnalysis != null) 
+                      _buildSuccessIndicator(),
+                    
+                    // PDF WİDGET BÖLÜMÜ
+                    if (_pdfConfig != null) ...[
+                      const Divider(thickness: 2),
+                      const SizedBox(height: 16),
+                      _buildPDFSection(),
+                    ],
+                    
+                    const SizedBox(height: 80),
                   ],
                 ],
               ),
             ),
     );
   }
+
+  // ========== YENİ UI WİDGETLARI ==========
+
+  Widget _buildSuccessIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle, color: Colors.green),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Analiz başarıyla veritabanına kaydedildi (ID: ${_savedAnalysis!.id})',
+              style: const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPDFSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.picture_as_pdf, color: Colors.red, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'PDF Raporu',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0288D1),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Dikey Kuvvet-Hız Profili analizinizi PDF olarak kaydedin veya paylaşın',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          if (_savedAnalysis != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'Bu analiz veritabanına kaydedilmiştir (ID: ${_savedAnalysis!.id})',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.blue,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          PDFActionWidget(
+            config: _pdfConfig!,
+            onSuccess: () {
+              _showSnackBar('PDF işlemi başarılı!', isError: false);
+            },
+            onError: (error) {
+              _showSnackBar('PDF hatası: $error', isError: true);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ========== MEVCUT UI WİDGETLARI (AYNI KALIYOR) ==========
 
   Widget _buildSporcuSecimBolumu() {
     return Container(
@@ -612,7 +1135,6 @@ void _updateSelectedOlcumler() {
             itemBuilder: (context, index) {
               Olcum olcum = _tumOlcumler[index];
               
-              // Ölçümün sıçrama yüksekliğini bul
               double yukseklik = 0;
               for (var deger in olcum.degerler) {
                 if (deger.degerTuru == 'yukseklik') {
@@ -621,7 +1143,6 @@ void _updateSelectedOlcumler() {
                 }
               }
               
-              // Tarih formatını düzenle
               String tarih = _formatTarih(olcum.olcumTarihi);
               
               return CheckboxListTile(
@@ -1010,7 +1531,6 @@ void _updateSelectedOlcumler() {
   }
 
   Widget _buildKuvvetHizGrafigi() {
-    // Hata koruması - geçersiz değerler için erken çıkış
     if (_forces.isEmpty || _velocities.isEmpty) {
       return Container(
         height: 200,
@@ -1033,7 +1553,6 @@ void _updateSelectedOlcumler() {
       );
     }
 
-    // Optimal F-V Profili hesaplaması (90° ve 30° için)
     double f0Opt90 = 0;
     double v0Opt90 = 0;
     double f0Opt30 = 0;
@@ -1041,7 +1560,6 @@ void _updateSelectedOlcumler() {
     double fvProfile90 = 0;
     double fvProfile30 = 0;
 
-    // 90° için optimal profil
     if (_sfvOptPerKg.isFinite && _pmaxPerKg.isFinite && 
         !_sfvOptPerKg.isNaN && !_pmaxPerKg.isNaN && 
         _pmaxPerKg > 0 && _sfvOptPerKg != 0) {
@@ -1057,7 +1575,6 @@ void _updateSelectedOlcumler() {
       }
     }
 
-    // 30° için optimal profil
     if (_sfvOpt30PerKg.isFinite && _pmaxPerKg.isFinite && 
         !_sfvOpt30PerKg.isNaN && !_pmaxPerKg.isNaN && 
         _pmaxPerKg > 0 && _sfvOpt30PerKg != 0) {
@@ -1073,12 +1590,9 @@ void _updateSelectedOlcumler() {
       }
     }
 
-    // Grafik sınırlarını belirlerken tüm profilleri dikkate al
-    // Geçersiz değerler için koruma ekle
     double maxF0 = 0;
     double maxV0 = 0;
     
-    // _f0PerKg, f0Opt90, f0Opt30 değerlerini kontrol et
     List<double> validF0Values = [];
     if (_f0PerKg.isFinite && !_f0PerKg.isNaN && _f0PerKg > 0) validF0Values.add(_f0PerKg);
     if (f0Opt90.isFinite && !f0Opt90.isNaN && f0Opt90 > 0) validF0Values.add(f0Opt90);
@@ -1087,10 +1601,9 @@ void _updateSelectedOlcumler() {
     if (validF0Values.isNotEmpty) {
       maxF0 = validF0Values.reduce(math.max);
     } else {
-      maxF0 = 40.0; // Varsayılan değer
+      maxF0 = 40.0;
     }
     
-    // _v0PerKg, v0Opt90, v0Opt30 değerlerini kontrol et
     List<double> validV0Values = [];
     if (_v0PerKg.isFinite && !_v0PerKg.isNaN && _v0PerKg > 0) validV0Values.add(_v0PerKg);
     if (v0Opt90.isFinite && !v0Opt90.isNaN && v0Opt90 > 0) validV0Values.add(v0Opt90);
@@ -1099,16 +1612,14 @@ void _updateSelectedOlcumler() {
     if (validV0Values.isNotEmpty) {
       maxV0 = validV0Values.reduce(math.max);
     } else {
-      maxV0 = 3.0; // Varsayılan değer
+      maxV0 = 3.0;
     }
 
-    // X ekseni için dinamik etiket aralığı
     double xInterval;
     double maxSpeed = maxV0 * 1.2;
     
-    // maxSpeed'in geçerli bir değer olduğundan emin ol
     if (!maxSpeed.isFinite || maxSpeed.isNaN || maxSpeed <= 0) {
-      maxSpeed = 3.0; // Varsayılan değer
+      maxSpeed = 3.0;
     }
     
     if (maxSpeed > 10) {
@@ -1119,8 +1630,7 @@ void _updateSelectedOlcumler() {
       xInterval = 0.5;
     }
 
-    // Hata düzeltmesi - maxSpeed'i yuvarlama
-    int ceiledValue = 6; // Varsayılan değer
+    int ceiledValue = 6;
     try {
       ceiledValue = (maxSpeed / xInterval).ceil();
       maxSpeed = ceiledValue * xInterval;
@@ -1155,7 +1665,6 @@ void _updateSelectedOlcumler() {
             ),
           ),
           const SizedBox(height: 8),
-          // Lejant (Legend) Ekle - Wrap ile taşmayı önle
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 16,
@@ -1300,7 +1809,6 @@ void _updateSelectedOlcumler() {
                             double fNorm = _forces[i];
                             if (vMean.isFinite && fNorm.isFinite && 
                                 !vMean.isNaN && !fNorm.isNaN) {
-                              // Sınırları aşmamak için değerleri kısıtla
                               vMean = math.min(vMean, maxSpeed);
                               fNorm = math.min(fNorm, maxF0 * 1.2);
                               return FlSpot(vMean, fNorm);
@@ -1336,7 +1844,6 @@ void _updateSelectedOlcumler() {
     );
   }
 
-  // Lejant için yardımcı widget
   Widget _buildLegendItem(Color color, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,

@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/sporcu_model.dart';
 import '../models/olcum_model.dart';
+import '../models/performance_analysis_model.dart'; // YENİ EKLENEN
 import '../services/database_service.dart';
+import '../widgets/pdf_action_widget.dart'; // YENİ EKLENEN
 
 class YatayProfilScreen extends StatefulWidget {
   const YatayProfilScreen({super.key});
@@ -19,6 +22,8 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
   List<Olcum> _olcumler = [];
   Map<int, List<Olcum>> _testGruplari = {};
   int? _secilenTestId;
+  bool _isSaving = false; // YENİ EKLENEN - Kayıt durumu
+  PerformanceAnalysis? _savedAnalysis; // YENİ EKLENEN - Kaydedilen analiz
   
   // Form controller'ları
   final _basincController = TextEditingController(text: "1000.0"); // hPa
@@ -53,7 +58,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
   
   // Kapı mesafeleri - varsayılan değerler
   final List<double> _defaultDistances = [0, 5, 10, 15, 20, 30, 40];
-  
+
   @override
   void initState() {
     super.initState();
@@ -68,7 +73,460 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     _boyController.dispose();
     super.dispose();
   }
+
+  // ========== VERİTABANI KAYIT İŞLEMLERİ ==========
   
+  /// Yatay profil analizini veritabanına kaydet
+  Future<void> _saveAnalysisToDatabase() async {
+    if (_secilenSporcu == null || _sprintTimes.isEmpty || _forces.isEmpty) {
+      _showSnackBar('Kaydedilecek geçerli analiz verisi yok');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      // Performans analizi objesi oluştur
+      final analysis = PerformanceAnalysis(
+        sporcuId: _secilenSporcu!.id!,
+        olcumTuru: 'YatayProfil',
+        degerTuru: 'HizIvmeAnalizi',
+        timeRange: 'Test ID: $_secilenTestId',
+        calculationDate: DateTime.now(),
+        
+        // Temel istatistikler (sprint sürelerinden)
+        mean: _sprintTimes.isNotEmpty ? _sprintTimes.reduce((a, b) => a + b) / _sprintTimes.length : 0.0,
+        standardDeviation: _calculateStandardDeviation(_sprintTimes),
+        coefficientOfVariation: _calculateCV(_sprintTimes),
+        minimum: _sprintTimes.isNotEmpty ? _sprintTimes.reduce(math.min) : 0.0,
+        maximum: _sprintTimes.isNotEmpty ? _sprintTimes.reduce(math.max) : 0.0,
+        range: _sprintTimes.isNotEmpty ? (_sprintTimes.reduce(math.max) - _sprintTimes.reduce(math.min)) : 0.0,
+        median: _calculateMedian(_sprintTimes),
+        sampleCount: _sprintTimes.length,
+        q25: _calculatePercentile(_sprintTimes, 25),
+        q75: _calculatePercentile(_sprintTimes, 75),
+        iqr: _calculatePercentile(_sprintTimes, 75) - _calculatePercentile(_sprintTimes, 25),
+        
+        // Yatay profil spesifik değerler
+        typicalityIndex: _rSquared * 100, // R² değerini tipiklik indeksi olarak kullan
+        momentum: _calculateMomentum(),
+        trendSlope: _sfv,
+        trendStability: _rSquared,
+        trendRSquared: _rSquared,
+        trendStrength: _calculateTrendStrength(),
+        
+        // Güvenilirlik metrikleri (yatay profil için adapte)
+        swc: _calculateSWC(),
+        mdc: _calculateMDC(),
+        testRetestReliability: _rSquared,
+        icc: _rSquared,
+        cvPercent: _calculateCV(_sprintTimes),
+        
+        // Performans değerlendirme
+        performanceClass: _getPerformanceClass(),
+        performanceTrend: _getPerformanceTrend(),
+        recentChange: _calculateRecentChange(),
+        recentChangePercent: _calculateRecentChangePercent(),
+        outliersCount: _calculateOutliersCount(),
+        
+        // JSON veriler
+        performanceValuesJson: jsonEncode(_sprintTimes),
+        datesJson: jsonEncode(_getSelectedMeasurementDates()),
+        zScoresJson: jsonEncode(_calculateZScores(_sprintTimes)),
+        outliersJson: jsonEncode(_identifyOutliers(_sprintTimes)),
+        
+        // Yatay profil spesifik ek veriler
+        additionalData: {
+          'yatayProfil': {
+            'bodyMass': _bodyMass,
+            'stature': _stature,
+            'pressure': double.tryParse(_basincController.text) ?? 1000.0,
+            'temperature': double.tryParse(_sicaklikController.text) ?? 20.0,
+            'f0': _f0,
+            'v0': _v0,
+            'pmax': _pmax,
+            'sfv': _sfv,
+            'sfvOpt': _sfvOpt,
+            'fvimb': _fvimb,
+            'rfmax': _rfmax,
+            'drf': _drf,
+            'vmax': _vmax,
+            'tau': _tau,
+            'rSquared': _rSquared,
+            'profileType': _getProfileType(),
+            'interpretation': _getProfileInterpretation(),
+            'recommendations': _getRecommendations(),
+            'forces': _forces,
+            'velocities': _velocities,
+            'powerValues': _powerValues,
+            'sprintDistances': _sprintDistances,
+            'defaultDistances': _defaultDistances,
+            'selectedTestId': _secilenTestId,
+            'selectedMeasurements': _getSelectedMeasurementDetails(),
+          }
+        },
+      );
+
+      // Veritabanına kaydet
+      final analysisId = await _databaseService.savePerformanceAnalysis(analysis);
+      _savedAnalysis = analysis.copyWith(id: analysisId);
+      
+      _showSnackBar('Yatay profil analizi başarıyla veritabanına kaydedildi (ID: $analysisId)');
+
+      debugPrint('YatayProfil analizi kaydedildi: ID=$analysisId, Sporcu=${_secilenSporcu!.ad}');
+      
+    } catch (e) {
+      debugPrint('YatayProfil analizi kaydetme hatası: $e');
+      _showSnackBar('Analiz kaydetme hatası: $e');
+    } finally {
+      setState(() => _isSaving = false);
+    }
+  }
+
+  // ========== İSTATİSTİK HESAPLAMA HELPER METODLARI ==========
+  
+  double _calculateStandardDeviation(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double sumSquaredDiffs = values.fold(0.0, (sum, value) => sum + math.pow(value - mean, 2));
+    return math.sqrt(sumSquaredDiffs / values.length);
+  }
+  
+  double _calculateCV(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double stdDev = _calculateStandardDeviation(values);
+    return mean != 0 ? (stdDev / mean) * 100 : 0.0;
+  }
+  
+  double _calculateMedian(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    List<double> sorted = List.from(values)..sort();
+    int middle = sorted.length ~/ 2;
+    if (sorted.length % 2 == 0) {
+      return (sorted[middle - 1] + sorted[middle]) / 2;
+    } else {
+      return sorted[middle];
+    }
+  }
+  
+  double _calculatePercentile(List<double> values, int percentile) {
+    if (values.isEmpty) return 0.0;
+    List<double> sorted = List.from(values)..sort();
+    double index = (percentile / 100) * (sorted.length - 1);
+    int lowerIndex = index.floor();
+    int upperIndex = index.ceil();
+    
+    if (lowerIndex == upperIndex) {
+      return sorted[lowerIndex];
+    } else {
+      double weight = index - lowerIndex;
+      return sorted[lowerIndex] * (1 - weight) + sorted[upperIndex] * weight;
+    }
+  }
+  
+  double _calculateMomentum() {
+    // Sprint sürelerinde azalma = pozitif momentum (hız artışı)
+    if (_sprintTimes.length < 3) return 0.0;
+    
+    List<double> recent = _sprintTimes.take(3).toList();
+    double firstHalf = recent.take(recent.length ~/ 2).reduce((a, b) => a + b) / (recent.length ~/ 2);
+    double secondHalf = recent.skip(recent.length ~/ 2).reduce((a, b) => a + b) / (recent.length - recent.length ~/ 2);
+    
+    // Sprint'te süre azalması iyi, bu yüzden ters işaret
+    return -((secondHalf - firstHalf) / firstHalf) * 100;
+  }
+  
+  double _calculateTrendStrength() {
+    return _rSquared > 0.8 ? 1.0 : _rSquared > 0.6 ? 0.5 : 0.0;
+  }
+  
+  double _calculateSWC() {
+    // Smallest Worthwhile Change - 0.2 x SD olarak hesapla
+    return _calculateStandardDeviation(_sprintTimes) * 0.2;
+  }
+  
+  double _calculateMDC() {
+    // Minimal Detectable Change - 1.96 x SEM olarak hesapla
+    double sem = _calculateStandardDeviation(_sprintTimes) / math.sqrt(_sprintTimes.length);
+    return 1.96 * sem;
+  }
+  
+  String _getPerformanceClass() {
+    if (_pmax.isNaN || _pmax <= 0) return 'Hesaplanamadı';
+    
+    if (_pmax > 18) return 'Mükemmel';
+    if (_pmax > 14) return 'İyi';
+    if (_pmax > 10) return 'Orta';
+    return 'Düşük';
+  }
+  
+  String _getPerformanceTrend() {
+    if (_sprintTimes.length < 2) return 'Belirsiz';
+    
+    double firstValue = _sprintTimes.first;
+    double lastValue = _sprintTimes.last;
+    double change = ((lastValue - firstValue) / firstValue) * 100;
+    
+    // Sprint'te süre azalması iyi (negatif değişim = iyileşme)
+    if (change < -5) return 'Yükseliş';
+    if (change > 5) return 'Düşüş';
+    return 'Stabil';
+  }
+  
+  double _calculateRecentChange() {
+    if (_sprintTimes.length < 2) return 0.0;
+    return _sprintTimes.last - _sprintTimes.first;
+  }
+  
+  double _calculateRecentChangePercent() {
+    if (_sprintTimes.length < 2 || _sprintTimes.first == 0) return 0.0;
+    return ((_sprintTimes.last - _sprintTimes.first) / _sprintTimes.first) * 100;
+  }
+  
+  int _calculateOutliersCount() {
+    List<double> outliers = _identifyOutliers(_sprintTimes);
+    return outliers.length;
+  }
+  
+  List<double> _calculateZScores(List<double> values) {
+    if (values.isEmpty) return [];
+    double mean = values.reduce((a, b) => a + b) / values.length;
+    double stdDev = _calculateStandardDeviation(values);
+    if (stdDev == 0) return List.filled(values.length, 0.0);
+    return values.map((value) => (value - mean) / stdDev).toList();
+  }
+  
+  List<double> _identifyOutliers(List<double> values) {
+    if (values.length < 4) return [];
+    
+    double q1 = _calculatePercentile(values, 25);
+    double q3 = _calculatePercentile(values, 75);
+    double iqr = q3 - q1;
+    double lowerBound = q1 - 1.5 * iqr;
+    double upperBound = q3 + 1.5 * iqr;
+    
+    return values.where((value) => value < lowerBound || value > upperBound).toList();
+  }
+
+  List<String> _getSelectedMeasurementDates() {
+    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
+      return [];
+    }
+    return _testGruplari[_secilenTestId]!.map((o) => o.olcumTarihi).toList();
+  }
+
+  List<Map<String, dynamic>> _getSelectedMeasurementDetails() {
+    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
+      return [];
+    }
+    
+    return _testGruplari[_secilenTestId]!.map((olcum) => {
+      'id': olcum.id,
+      'olcumSirasi': olcum.olcumSirasi,
+      'olcumTarihi': olcum.olcumTarihi,
+      'testId': olcum.testId,
+      'degerler': olcum.degerler.map((d) => {
+        'degerTuru': d.degerTuru,
+        'deger': d.deger,
+      }).toList(),
+    }).toList();
+  }
+
+  // ========== PDF VERİ HAZIRLAMA ==========
+  
+  Map<String, dynamic> get _pdfAnalysisData {
+    return {
+      // Temel bilgiler
+      'bodyMass': _bodyMass,
+      'stature': _stature,
+      'pressure': double.tryParse(_basincController.text) ?? 1000.0,
+      'temperature': double.tryParse(_sicaklikController.text) ?? 20.0,
+      
+      // Profil sonuçları
+      'f0': _f0,
+      'v0': _v0,
+      'pmax': _pmax,
+      'sfv': _sfv,
+      'sfvOpt': _sfvOpt,
+      'fvimb': _fvimb,
+      'rfmax': _rfmax,
+      'drf': _drf,
+      'vmax': _vmax,
+      'tau': _tau,
+      'rSquared': _rSquared,
+      
+      // Ham veriler
+      'sprintTimes': _sprintTimes,
+      'sprintDistances': _sprintDistances,
+      'defaultDistances': _defaultDistances,
+      'forces': _forces,
+      'velocities': _velocities,
+      'powerValues': _powerValues,
+      
+      // İstatistikler
+      'mean': _sprintTimes.isNotEmpty ? _sprintTimes.reduce((a, b) => a + b) / _sprintTimes.length : 0.0,
+      'standardDeviation': _calculateStandardDeviation(_sprintTimes),
+      'coefficientOfVariation': _calculateCV(_sprintTimes),
+      'minimum': _sprintTimes.isNotEmpty ? _sprintTimes.reduce(math.min) : 0.0,
+      'maximum': _sprintTimes.isNotEmpty ? _sprintTimes.reduce(math.max) : 0.0,
+      'median': _calculateMedian(_sprintTimes),
+      'sampleCount': _sprintTimes.length,
+      
+      // Ölçüm verileri
+      'selectedTestId': _secilenTestId,
+      'selectedMeasurements': _getSelectedMeasurementDetails(),
+      
+      // Profil yorumlama
+      'interpretation': _getProfileInterpretation(),
+      'profileType': _getProfileType(),
+      'recommendations': _getRecommendations(),
+      'performanceClass': _getPerformanceClass(),
+      
+      // Grafik verileri
+      'chartData': {
+        'forceVelocityProfile': _forces.asMap().entries.map((entry) => {
+          'x': _velocities[entry.key],
+          'y': entry.value,
+        }).toList(),
+        'powerProfile': _powerValues.asMap().entries.map((entry) => {
+          'x': _velocities[entry.key],
+          'y': entry.value,
+        }).toList(),
+        'optimalProfile': _getOptimalProfileData(),
+      },
+      
+      // Metadata
+      'calculationDate': DateTime.now().toIso8601String(),
+      'measurementCount': _sprintTimes.length,
+      'analysisType': 'Yatay Kuvvet-Hız Profili',
+      'savedAnalysisId': _savedAnalysis?.id,
+    };
+  }
+
+  PDFReportConfig? get _pdfConfig {
+    if (_secilenSporcu == null || _sprintTimes.isEmpty) {
+      return null;
+    }
+    
+    return PDFReportConfig.performance(
+      sporcu: _secilenSporcu!,
+      olcumTuru: 'YatayProfil',
+      degerTuru: 'HizIvmeAnalizi',
+      analysisData: _pdfAnalysisData,
+      additionalNotes: 'Yatay Kuvvet-Hız Profili analizi raporu.\n\n'
+          'Analiz Detayları:\n'
+          '• Test ID: $_secilenTestId\n'
+          '• ${_sprintTimes.length} adet sprint verisi kullanıldı\n'
+          '• Profil Tipi: ${_getProfileType()}\n'
+          '• FVimb (Profil Dengesizliği): ${_fvimb.toStringAsFixed(1)}%\n'
+          '• R² (Güvenilirlik): ${_rSquared.toStringAsFixed(3)}\n'
+          '• Maksimal Güç: ${_pmax.toStringAsFixed(1)} W/kg\n'
+          '• Performans Sınıfı: ${_getPerformanceClass()}\n'
+          '• RFmax: ${_rfmax.toStringAsFixed(4)}\n'
+          '• DRF: ${(_drf * 100).toStringAsFixed(2)}%\n\n'
+          'Bu rapor ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} tarihinde oluşturulmuştur.',
+      includeCharts: true,
+      showPrintButton: true,
+    );
+  }
+
+  // ========== HELPER METODLAR ==========
+  
+  String _getProfileType() {
+    if (_fvimb.isNaN) return "Hesaplanamadı";
+    
+    if (_fvimb > 15) {
+      if (_sfv < _sfvOpt) {
+        return "Kuvvet Eksikliği";
+      } else {
+        return "Hız Eksikliği";
+      }
+    } else {
+      return "Dengeli Profil";
+    }
+  }
+  
+  List<String> _getRecommendations() {
+    List<String> recommendations = [];
+    
+    if (_fvimb.isNaN) {
+      recommendations.add("Yeterli veri bulunamadı. Daha fazla ölçüm yapın.");
+      return recommendations;
+    }
+    
+    if (_fvimb > 15) {
+      if (_sfv < _sfvOpt) {
+        recommendations.addAll([
+          "Kuvvet geliştirici egzersizlere odaklanın",
+          "Ağır sled antrenmanı yapın",
+          "Hafif yüklerle patlayıcı squat egzersizleri",
+          "Power clean gibi olimpik kaldırış hareketleri"
+        ]);
+      } else {
+        recommendations.addAll([
+          "Hız geliştirici egzersizlere odaklanın",
+          "Pliometrik sıçrama antrenmanları",
+          "Hız odaklı sprint çalışmaları",
+          "Reaktif sprint drilleri"
+        ]);
+      }
+    } else {
+      recommendations.addAll([
+        "Mevcut dengeli profilinizi koruyun",
+        "Hem kuvvet hem hız antrenmanlarını eşit oranda yapın",
+        "Periyodizasyon uygulayarak varyasyon sağlayın",
+        "Spor dalınıza özel sprint antrenmanları"
+      ]);
+    }
+    
+    if (_rSquared < 0.7) {
+      recommendations.add("Ölçüm tutarlılığını artırmak için standart protokol kullanın");
+    }
+    
+    return recommendations;
+  }
+  
+  List<Map<String, double>> _getOptimalProfileData() {
+    double optimalF0 = 0.0;
+    double optimalV0 = 0.0;
+    
+    if (_sfvOpt.isFinite && _pmax.isFinite && 
+        !_sfvOpt.isNaN && !_pmax.isNaN && 
+        _pmax > 0 && _sfvOpt != 0) {
+      try {
+        optimalF0 = 2 * math.sqrt(-_pmax * _sfvOpt);
+        optimalV0 = -optimalF0 / _sfvOpt;
+      } catch (e) {
+        optimalF0 = 0.0;
+        optimalV0 = 0.0;
+      }
+    }
+    
+    return [
+      {'x': 0.0, 'y': optimalF0},
+      {'x': optimalV0, 'y': 0.0},
+    ];
+  }
+
+  void _showSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: message.contains('hata') || message.contains('Hata') 
+              ? Colors.red 
+              : const Color(0xFF4CAF50),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: Duration(seconds: message.contains('hata') ? 4 : 3),
+        ),
+      );
+    }
+  }
+
+  // ========== MEVCUT METODLAR (AYNI KALIYOR) ==========
+
   // Sporcuları yükle
   Future<void> _loadSporcular() async {
     try {
@@ -150,14 +608,6 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     }
   }
   
-  void _showSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message))
-      );
-    }
-  }
-  
   // Yatay F-V profili hesaplama
   void _calculateHorizontalFVProfile() {
     if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
@@ -183,7 +633,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
         for (int j = 1; j <= 7; j++) {
           var kapiDeger = olcum.degerler.firstWhere(
             (d) => d.degerTuru.toUpperCase() == 'KAPI$j',
-            orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+               orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
           );
           
           if (kapiDeger.deger > 0 && j-1 < _defaultDistances.length) {
@@ -514,12 +964,43 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     return interpretation;
   }
   
+  // Tarih formatını düzenle
+  String _formatTarih(String tarih) {
+    try {
+      if (tarih.contains('T')) {
+        final date = DateTime.parse(tarih);
+        return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+      }
+      return tarih;
+    } catch (e) {
+      return tarih;
+    }
+  }
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Yatay Kuvvet-Hız Profili'),
         backgroundColor: const Color(0xFF0288D1),
+        actions: [
+          // VERİTABANI KAYIT BUTONU
+          if (_secilenSporcu != null && _sprintTimes.isNotEmpty && _forces.isNotEmpty)
+            IconButton(
+              onPressed: _isSaving ? null : _saveAnalysisToDatabase,
+              icon: _isSaving 
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              tooltip: 'Analizi Veritabanına Kaydet',
+            ),
+        ],
       ),
       body: _isLoading 
           ? const Center(child: CircularProgressIndicator())
@@ -549,6 +1030,20 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
                       _buildPowerCharts(),
                       const SizedBox(height: 16),
                       _buildYorum(),
+                      const SizedBox(height: 20),
+                      
+                      // BAŞARI DURUMU GÖSTERGESİ
+                      if (_savedAnalysis != null) 
+                        _buildSuccessIndicator(),
+                      
+                      // PDF WİDGET BÖLÜMÜ
+                      if (_pdfConfig != null) ...[
+                        const Divider(thickness: 2),
+                        const SizedBox(height: 16),
+                        _buildPDFSection(),
+                      ],
+                      
+                      const SizedBox(height: 80),
                     ],
                   ],
                 ],
@@ -556,8 +1051,109 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
             ),
     );
   }
-  
-  // UI Bileşenleri
+
+  // ========== YENİ UI WİDGETLARI ==========
+
+  Widget _buildSuccessIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle, color: Colors.green),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Analiz başarıyla veritabanına kaydedildi (ID: ${_savedAnalysis!.id})',
+              style: const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPDFSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.picture_as_pdf, color: Colors.red, size: 24),
+              SizedBox(width: 8),
+              Text(
+                'PDF Raporu',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0288D1),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Yatay Kuvvet-Hız Profili analizinizi PDF olarak kaydedin veya paylaşın',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          if (_savedAnalysis != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'Bu analiz veritabanına kaydedilmiştir (ID: ${_savedAnalysis!.id})',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.blue,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          PDFActionWidget(
+            config: _pdfConfig!,
+            onSuccess: () {
+              _showSnackBar('PDF işlemi başarılı!');
+            },
+            onError: (error) {
+              _showSnackBar('PDF hatası: $error');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ========== MEVCUT UI WİDGETLARI (AYNI KALIYOR) ==========
   
   // Sporcu seçim bölümü
   Widget _buildSporcuSecimBolumu() {
@@ -662,19 +1258,6 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     );
   }
   
-  // Tarih formatını düzenle
-  String _formatTarih(String tarih) {
-    try {
-      if (tarih.contains('T')) {
-        final date = DateTime.parse(tarih);
-        return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
-      }
-      return tarih;
-    } catch (e) {
-      return tarih;
-    }
-  }
-  
   // Parametreler form bölümü
   Widget _buildParametrelerForm() {
     return Card(
@@ -750,94 +1333,8 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     );
   }
   
-  // Sprint veri tablosu
-  Widget _buildSprintDataTable() {
-    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
-      return const SizedBox.shrink();
-    }
-    
-    List<Olcum> secilenOlcumler = _testGruplari[_secilenTestId]!;
-    
-    // Sprint zamanlarını al
-    List<Map<String, dynamic>> sprintData = [];
-    
-    for (int i = 0; i < secilenOlcumler.length; i++) {
-      Olcum olcum = secilenOlcumler[i];
-      Map<String, dynamic> olcumData = {
-        'OlcumSirasi': olcum.olcumSirasi,
-        'Tarih': _formatTarih(olcum.olcumTarihi),
-      };
-      
-      for (int j = 1; j <= 7; j++) {
-        var kapiDeger = olcum.degerler.firstWhere(
-          (d) => d.degerTuru.toUpperCase() == 'KAPI$j',
-          orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
-        );
-        
-        if (kapiDeger.deger > 0) {
-          olcumData['Kapi$j'] = kapiDeger.deger;
-          if (j-1 < _defaultDistances.length) {
-            olcumData['Mesafe$j'] = _defaultDistances[j-1];
-          }
-        }
-      }
-      
-      sprintData.add(olcumData);
-    }
-    
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Sprint Ölçümleri',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0288D1),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('Ölçüm')),
-                  DataColumn(label: Text('Tarih')),
-                  DataColumn(label: Text('Kapı 1')),
-                  DataColumn(label: Text('Kapı 2')),
-                  DataColumn(label: Text('Kapı 3')),
-                  DataColumn(label: Text('Kapı 4')),
-                  DataColumn(label: Text('Kapı 5')),
-                  DataColumn(label: Text('Kapı 6')),
-                  DataColumn(label: Text('Kapı 7')),
-                ],
-                rows: sprintData.map((data) {
-                  return DataRow(
-                    cells: [
-                      DataCell(Text('${data['OlcumSirasi']}')),
-                      DataCell(Text('${data['Tarih']}')),
-                      DataCell(Text(data['Kapi1'] != null ? '${data['Kapi1'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi2'] != null ? '${data['Kapi2'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi3'] != null ? '${data['Kapi3'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi4'] != null ? '${data['Kapi4'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi5'] != null ? '${data['Kapi5'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi6'] != null ? '${data['Kapi6'].toStringAsFixed(3)}' : '-')),
-                      DataCell(Text(data['Kapi7'] != null ? '${data['Kapi7'].toStringAsFixed(3)}' : '-')),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
+  // YatayProfilScreen için eksik metodlar - dosyanızın sonuna ekleyin
+
   // Hesapla butonu
   Widget _buildHesaplaButton() {
     return SizedBox(
@@ -880,7 +1377,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
             const SizedBox(height: 16),
             GridView.count(
               crossAxisCount: 2,
-              childAspectRatio: 2.5, // Oranı artırarak daha yatay kartlar
+              childAspectRatio: 2.5,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 10,
@@ -903,7 +1400,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       ),
     );
   }
-  
+
   // Sonuç kartı bileşeni
   Widget _buildResultCard(String title, double value, Color color) {
     return Container(
@@ -943,69 +1440,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       ),
     );
   }
-  
-  // Renk yardımcı metodları
-  Color _getF0Color(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 6.0) return Colors.red.withAlpha(70);
-    if (value < 8.0) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getV0Color(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 8.0) return Colors.red.withAlpha(70);
-    if (value < 10.0) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getPmaxColor(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 14.0) return Colors.red.withAlpha(70);
-    if (value < 18.0) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getFvimbColor(double value, double sfv, double sfvOpt) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    
-    if (value > 15.0) {
-      return sfv < sfvOpt 
-          ? Colors.lightBlue.withAlpha(70) // Kuvvet eksikliği
-          : Colors.red.withAlpha(70);     // Hız eksikliği
-    }
-    
-    return Colors.green.withAlpha(70); // Optimal
-  }
-  
-  Color _getRfmaxColor(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 0.40) return Colors.red.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getDrfColor(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    double drfPercent = value * 100;
-    if (drfPercent < -6.0) return Colors.red.withAlpha(70);
-    if (drfPercent < -3.5) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getR2Color(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 0.70) return Colors.red.withAlpha(70);
-    if (value < 0.85) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
-  Color _getVmaxColor(double value) {
-    if (!value.isFinite) return Colors.grey.withAlpha(70);
-    if (value < 7.5) return Colors.red.withAlpha(70);
-    if (value < 9.0) return Colors.yellow.withAlpha(70);
-    return Colors.green.withAlpha(70);
-  }
-  
+
   // Kuvvet-Hız profil grafiği
   Widget _buildForceVelocityChart() {
     if (_forces.isEmpty || _velocities.isEmpty) {
@@ -1058,16 +1493,15 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
                     show: true,
                     drawVerticalLine: true,
                     horizontalInterval: 1,
-                    verticalInterval: 2, // Daha geniş aralıklar
+                    verticalInterval: 2,
                   ),
                   titlesData: FlTitlesData(
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
-                        interval: 2, // Sayılar arası aralık artırıldı
+                        interval: 2,
                         getTitlesWidget: (value, meta) {
-                          // Sadece tam sayıları göster
                           if (value == value.roundToDouble()) {
                             return SideTitleWidget(
                               axisSide: meta.axisSide,
@@ -1191,14 +1625,13 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       ),
     );
   }
-  
+
   // Güç grafiği
   Widget _buildPowerCharts() {
     if (_powerValues.isEmpty || _velocities.isEmpty) {
       return const SizedBox.shrink();
     }
     
-    // Maksimum değerleri belirle
     double safeMaxVelocity = 0;
     double safeMaxPower = 0;
     
@@ -1237,16 +1670,15 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
                     show: true,
                     drawVerticalLine: true,
                     horizontalInterval: 2,
-                    verticalInterval: 2, // Daha geniş aralıklar
+                    verticalInterval: 2,
                   ),
                   titlesData: FlTitlesData(
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
-                        interval: 2, // Sayılar arası aralık artırıldı
+                        interval: 2,
                         getTitlesWidget: (value, meta) {
-                          // Sadece tam sayıları göster
                           if (value == value.roundToDouble()) {
                             return SideTitleWidget(
                               axisSide: meta.axisSide,
@@ -1337,8 +1769,8 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       ),
     );
   }
-  
-  // Veri noktalarını örnekleme - daha verimli
+
+  // Veri noktalarını örnekleme
   List<FlSpot> _sampleDataPoints(List<double> xValues, List<double> yValues, int maxPoints, double maxX, double maxY) {
     if (xValues.isEmpty || yValues.isEmpty || xValues.length != yValues.length) {
       return [];
@@ -1346,11 +1778,8 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     
     final spots = <FlSpot>[];
     final n = xValues.length;
-    
-    // Örnekleme adımını hesapla
     final step = n <= maxPoints ? 1 : n ~/ maxPoints;
     
-    // Düzenli aralıklarla örnekle
     for (int i = 0; i < n; i += step) {
       if (xValues[i].isFinite && yValues[i].isFinite) {
         final x = math.min(xValues[i], maxX);
@@ -1359,7 +1788,6 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       }
     }
     
-    // Son noktayı da ekle
     if (n > 0 && (n - 1) % step != 0 && xValues.last.isFinite && yValues.last.isFinite) {
       final x = math.min(xValues.last, maxX);
       final y = math.min(yValues.last, maxY);
@@ -1368,7 +1796,7 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
     
     return spots;
   }
-  
+
   // Yorum bölümü
   Widget _buildYorum() {
     return Card(
@@ -1393,4 +1821,154 @@ class _YatayProfilScreenState extends State<YatayProfilScreen> {
       ),
     );
   }
+
+  // Renk yardımcı metodları
+  Color _getF0Color(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 6.0) return Colors.red.withAlpha(70);
+    if (value < 8.0) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getV0Color(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 8.0) return Colors.red.withAlpha(70);
+    if (value < 10.0) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getPmaxColor(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 14.0) return Colors.red.withAlpha(70);
+    if (value < 18.0) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getFvimbColor(double value, double sfv, double sfvOpt) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    
+    if (value > 15.0) {
+      return sfv < sfvOpt 
+          ? Colors.lightBlue.withAlpha(70) // Kuvvet eksikliği
+          : Colors.red.withAlpha(70);     // Hız eksikliği
+    }
+    
+    return Colors.green.withAlpha(70); // Optimal
+  }
+  
+  Color _getRfmaxColor(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 0.40) return Colors.red.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getDrfColor(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    double drfPercent = value * 100;
+    if (drfPercent < -6.0) return Colors.red.withAlpha(70);
+    if (drfPercent < -3.5) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getR2Color(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 0.70) return Colors.red.withAlpha(70);
+    if (value < 0.85) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+  
+  Color _getVmaxColor(double value) {
+    if (!value.isFinite) return Colors.grey.withAlpha(70);
+    if (value < 7.5) return Colors.red.withAlpha(70);
+    if (value < 9.0) return Colors.yellow.withAlpha(70);
+    return Colors.green.withAlpha(70);
+  }
+
+  Widget _buildSprintDataTable() {
+    if (_secilenTestId == null || !_testGruplari.containsKey(_secilenTestId)) {
+      return const SizedBox.shrink();
+    }
+    
+    List<Olcum> secilenOlcumler = _testGruplari[_secilenTestId]!;
+    
+    // Sprint zamanlarını al
+   // Sprint zamanlarını al
+List<Map<String, dynamic>> sprintData = [];
+
+for (int i = 0; i < secilenOlcumler.length; i++) {
+  Olcum olcum = secilenOlcumler[i];
+  Map<String, dynamic> olcumData = {
+    'OlcumSirasi': olcum.olcumSirasi,
+    'Tarih': _formatTarih(olcum.olcumTarihi),
+  };
+  
+  for (int j = 1; j <= 7; j++) {
+    var kapiDeger = olcum.degerler.firstWhere(
+      (d) => d.degerTuru.toUpperCase() == 'KAPI$j',
+      orElse: () => OlcumDeger(olcumId: 0, degerTuru: '', deger: 0),
+    );
+    
+    if (kapiDeger.deger > 0) {
+      olcumData['Kapi$j'] = kapiDeger.deger;
+      if (j-1 < _defaultDistances.length) {
+        olcumData['Mesafe$j'] = _defaultDistances[j-1];
+      }
+    }
+  }
+  
+  sprintData.add(olcumData);
+}
+
+return Card(
+  elevation: 4,
+  child: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Sprint Ölçümleri',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0288D1),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Ölçüm')),
+              DataColumn(label: Text('Tarih')),
+              DataColumn(label: Text('Kapı 1')),
+              DataColumn(label: Text('Kapı 2')),
+              DataColumn(label: Text('Kapı 3')),
+              DataColumn(label: Text('Kapı 4')),
+              DataColumn(label: Text('Kapı 5')),
+              DataColumn(label: Text('Kapı 6')),
+              DataColumn(label: Text('Kapı 7')),
+            ],
+            rows: sprintData.map((data) {
+              return DataRow(
+                cells: [
+                  DataCell(Text('${data['OlcumSirasi']}')),
+                  DataCell(Text('${data['Tarih']}')),
+                  DataCell(Text(data['Kapi1'] != null ? '${data['Kapi1'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi2'] != null ? '${data['Kapi2'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi3'] != null ? '${data['Kapi3'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi4'] != null ? '${data['Kapi4'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi5'] != null ? '${data['Kapi5'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi6'] != null ? '${data['Kapi6'].toStringAsFixed(3)}' : '-')),
+                  DataCell(Text(data['Kapi7'] != null ? '${data['Kapi7'].toStringAsFixed(3)}' : '-')),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    ),
+  ),
+);
+}
 }
